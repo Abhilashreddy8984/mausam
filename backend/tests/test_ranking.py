@@ -339,6 +339,10 @@ if __name__ == "__main__":
     test_no_context_backward_compat()
     test_all_personas_smoke()
     test_invalid_persona()
+    # ── New location / GPS tests ──
+    test_context_stores_coordinates()
+    test_ranking_with_and_without_coordinates()
+    test_city_only_context()
 
     print()
     print("=" * 60)
@@ -347,3 +351,97 @@ if __name__ == "__main__":
     print("=" * 60)
 
     sys.exit(0 if _FAIL == 0 else 1)
+
+
+# ---------------------------------------------------------------------------
+# TEST 13 — RankingContext stores lat/lon when provided
+# ---------------------------------------------------------------------------
+def test_context_stores_coordinates():
+    print("\nTEST 13: RankingContext stores lat/lon when provided")
+    ctx_with = RankingContext(
+        persona="farmer",
+        city="Hyderabad",
+        current_hour=14,
+        latitude=17.3850,
+        longitude=78.4867,
+        temperature_c=32.0,
+    )
+    ctx_without = RankingContext(
+        persona="farmer",
+        city="Hyderabad",
+        current_hour=14,
+        temperature_c=32.0,
+    )
+
+    _check("latitude stored correctly",
+           ctx_with.latitude == 17.3850)
+    _check("longitude stored correctly",
+           ctx_with.longitude == 78.4867)
+    _check("latitude is None when not provided",
+           ctx_without.latitude is None)
+    _check("longitude is None when not provided",
+           ctx_without.longitude is None)
+
+
+# ---------------------------------------------------------------------------
+# TEST 14 — Ranking with coordinates produces same scores as without
+#           (DemoWeatherProvider does not use coords for weather data;
+#            coords are carried through but do not change current scores)
+# ---------------------------------------------------------------------------
+def test_ranking_with_and_without_coordinates():
+    print("\nTEST 14: Ranking with GPS coords vs without — same scores")
+    ctx_no_coords = RankingContext(
+        persona="farmer",
+        city="Hyderabad",
+        current_hour=14,
+        temperature_c=32.0,
+        humidity_pct=68.0,
+        wind_speed_kmh=14.0,
+        condition="Partly Cloudy",
+    )
+    ctx_with_coords = RankingContext(
+        persona="farmer",
+        city="Hyderabad",
+        current_hour=14,
+        latitude=17.3850,
+        longitude=78.4867,
+        temperature_c=32.0,
+        humidity_pct=68.0,
+        wind_speed_kmh=14.0,
+        condition="Partly Cloudy",
+    )
+
+    result_no  = _RANKING_SERVICE.rank(list(_DEMO_CARDS), "farmer", ctx_no_coords)
+    result_yes = _RANKING_SERVICE.rank(list(_DEMO_CARDS), "farmer", ctx_with_coords)
+
+    _check("all 10 cards with coords",    len(result_yes) == 10)
+    _check("all 10 cards without coords", len(result_no) == 10)
+    _check("card order identical with/without coords",
+           [c.type for c in result_no] == [c.type for c in result_yes])
+    _check("scores identical with/without coords",
+           [c.score for c in result_no] == [c.score for c in result_yes])
+
+
+# ---------------------------------------------------------------------------
+# TEST 15 — City-only context (lat/lon both None) still works correctly
+# ---------------------------------------------------------------------------
+def test_city_only_context():
+    print("\nTEST 15: City-only context (no GPS) works correctly")
+    ctx = RankingContext(
+        persona="traveller",
+        city="Mumbai",          # different city — should not crash
+        current_hour=10,
+        temperature_c=30.0,
+        wind_speed_kmh=12.0,
+        condition="Sunny",
+    )
+    result = _RANKING_SERVICE.rank(list(_DEMO_CARDS), "traveller", ctx)
+
+    _check("all 10 cards for non-Hyderabad city", len(result) == 10)
+    _check("no card has score 0", all(c.score > 0 for c in result))
+    _check("latitude is None in city-only context", ctx.latitude is None)
+    _check("longitude is None in city-only context", ctx.longitude is None)
+
+
+# NOTE: Tests 13-15 above are picked up automatically by pytest.
+# The __main__ block above calls them when running as a standalone script.

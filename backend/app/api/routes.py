@@ -57,28 +57,46 @@ def _build_context(
     persona: str,
     city: str,
     weather: WeatherResponse,
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> RankingContext:
     """
     Build a RankingContext from the API request + weather response.
 
-    Uses the server's current local hour for time-of-day adjustments.
-    All weather fields are taken directly from the WeatherResponse —
+    Uses the server's current UTC hour for time-of-day adjustments.
+    All weather fields are taken directly from WeatherResponse —
     no values are invented or assumed.
 
-    The WeatherResponse does not currently carry rain_probability,
-    visibility_km, uv_index, or aqi as top-level fields (those are
-    inside WeatherCard values as strings).  We pass None for these
-    and the ranking service skips those context adjustments gracefully.
+    Parameters
+    ----------
+    persona   : Active persona key, e.g. "farmer".
+    city      : City name from the query parameter.
+    weather   : WeatherResponse from the active provider.
+    latitude  : Optional decimal latitude from the Flutter GPS fix.
+    longitude : Optional decimal longitude from the Flutter GPS fix.
+                When provided, both are stored in RankingContext so that
+                future providers (e.g. IMD) can use coordinates directly.
+                The current DemoWeatherProvider ignores them — this is by
+                design; coordinates are carried through now so the
+                architecture is ready for the IMD integration step.
 
-    When the backend is connected to a real API that provides these
-    as structured numbers, they can be added to WeatherResponse and
-    wired in here — no other changes needed.
+    Notes
+    -----
+    WeatherResponse does not yet carry rain_probability, visibility_km,
+    uv_index, or aqi as top-level numeric fields (those are embedded
+    inside WeatherCard.value strings).  We pass None for these and the
+    ranking service skips those context adjustments gracefully.
+    Once a real API provides them as numbers, wire them in here —
+    no other changes needed.
     """
-    current_hour = datetime.now(timezone.utc).hour  # use UTC for consistency
+    current_hour = datetime.now(timezone.utc).hour  # UTC for consistency
 
     return RankingContext(
         persona=persona,
         city=city,
+        # GPS coordinates from Flutter — None when location unavailable
+        latitude=latitude,
+        longitude=longitude,
         current_hour=current_hour,
         # Structured weather fields available from WeatherResponse:
         temperature_c=weather.temperature,
@@ -86,7 +104,7 @@ def _build_context(
         wind_speed_kmh=weather.wind_speed,
         condition=weather.condition,
         # Fields not yet in WeatherResponse as top-level numbers:
-        # (set to None → ranking service skips those context checks)
+        # (None → ranking service skips those context checks)
         feels_like_c=None,
         rain_probability=None,
         visibility_km=None,
@@ -148,6 +166,22 @@ def get_homepage(
         ),
     ),
     city: str = Query(default="Hyderabad", description="City name"),
+    latitude: float | None = Query(
+        default=None,
+        description=(
+            "Optional decimal latitude from the device GPS fix, e.g. 17.3850. "
+            "When provided, stored in RankingContext for future coordinate-based "
+            "provider lookups. Currently carried through but not used by "
+            "DemoWeatherProvider."
+        ),
+    ),
+    longitude: float | None = Query(
+        default=None,
+        description=(
+            "Optional decimal longitude from the device GPS fix, e.g. 78.4867. "
+            "Paired with latitude — both must be supplied or both omitted."
+        ),
+    ),
 ):
     """
     Returns personalized weather data for the given persona and city.
@@ -158,21 +192,29 @@ def get_homepage(
     Ranking uses an additive scoring model:
       score = persona_base + weather_context_boost + time_of_day_boost
 
+    Optional GPS coordinates
+    ------------------------
+    latitude and longitude are accepted but not yet used by the
+    DemoWeatherProvider for weather lookup.  They are stored in
+    RankingContext so the architecture is ready for the IMD integration
+    step, where coordinates will drive the weather data fetch.
+
     The `source` field identifies the weather provider.
     The `ranking_reasons` field on each card (development only) explains
     why it received its score — Flutter ignores this field.
 
-    Example
-    -------
+    Examples
+    --------
     GET /homepage?persona=farmer&city=Hyderabad
+    GET /homepage?persona=farmer&city=Hyderabad&latitude=17.3850&longitude=78.4867
     """
     # ── 1. Fetch weather data ──────────────────────────────────
     provider = get_provider()
-    location = LocationQuery(city=city)
+    location = LocationQuery(city=city, latitude=latitude, longitude=longitude)
     weather = provider.get_weather(location)
 
-    # ── 2. Build ranking context ───────────────────────────────
-    context = _build_context(persona, city, weather)
+    # ── 2. Build ranking context (includes GPS coordinates) ────
+    context = _build_context(persona, city, weather, latitude, longitude)
 
     # ── 3. Rank cards ──────────────────────────────────────────
     try:

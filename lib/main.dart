@@ -42,6 +42,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'data/demo_weather_provider.dart';
+import 'models/location_data.dart';
 import 'models/persona.dart';
 import 'models/weather_data.dart';
 import 'screens/main_shell.dart';
@@ -90,6 +91,12 @@ class _MausamAppState extends State<MausamApp> {
 
     // ── Re-fetch whenever the user changes their persona ──────
     _personaNotifier.addListener(_onPersonaChanged);
+
+    // ── Re-fetch when GPS location is resolved ────────────────
+    // This ensures that if the user grants location permission after
+    // app start, the next ranking request uses the real detected city
+    // and coordinates instead of the demo fallback.
+    _locationNotifier.addListener(_onLocationChanged);
   }
 
   /// Called every time the user switches persona.
@@ -97,25 +104,55 @@ class _MausamAppState extends State<MausamApp> {
     _fetchBackendOrder(_personaNotifier.value);
   }
 
-  /// Calls the FastAPI /homepage endpoint for the given persona
-  /// using the current weather city as the city parameter.
+  /// Called when the GPS location state changes.
+  /// Only triggers a backend re-fetch when a successful location fix
+  /// arrives — avoids redundant calls during loading or error states.
+  void _onLocationChanged() {
+    if (_locationNotifier.value.status == LocationStatus.success) {
+      _fetchBackendOrder(_personaNotifier.value);
+    }
+  }
+
+  /// Calls the FastAPI /homepage endpoint for the given persona.
+  ///
+  /// Location resolution priority:
+  ///   1. GPS city from LocationNotifier (if permission granted + fix obtained)
+  ///   2. Fallback: demo weather city ("Hyderabad")
+  ///
+  /// GPS coordinates (latitude + longitude) are passed to the backend
+  /// when available so they reach RankingContext for future use by
+  /// coordinate-aware weather providers (e.g. IMD).
   ///
   /// On success  → updates [_backendCardOrderNotifier] with the
   ///               ranked list of card type strings.
   /// On failure  → sets [_backendCardOrderNotifier] to null so
   ///               HomeScreen falls back to local ordering.
   Future<void> _fetchBackendOrder(Persona persona) async {
-    // Map Flutter Persona enum → backend persona string.
     final personaStr = _backendPersonaString(persona);
 
-    // Use the city from the current WeatherData snapshot.
-    // Once real GPS → weather is wired, this will use the
-    // detected city from locationNotifier automatically.
-    final city = _weather.city;
+    // ── Resolve city and GPS coordinates from LocationNotifier ──
+    // locationData is non-null only when GPS permission was granted
+    // AND a successful fix was obtained.
+    final locationData = _locationNotifier.value.data;
+
+    // Use GPS-detected city when available; fall back to demo city.
+    // LocationData.city may itself be null if reverse-geocoding failed —
+    // fall back to demo city in that case too.
+    final city = (locationData?.city != null && locationData!.city!.isNotEmpty)
+        ? locationData.city!
+        : _weather.city; // "Hyderabad" from DemoWeatherProvider
+
+    // GPS coordinates — only sent when both are available
+    final latitude = locationData?.latitude;
+    final longitude = locationData?.longitude;
+
+    _logLocation(city, latitude, longitude);
 
     final response = await ApiService.fetchHomepage(
       persona: personaStr,
       city: city,
+      latitude: latitude,
+      longitude: longitude,
     );
 
     if (response != null) {
@@ -124,6 +161,22 @@ class _MausamAppState extends State<MausamApp> {
       // Backend unavailable — clear so HomeScreen uses local ordering.
       _backendCardOrderNotifier.value = null;
     }
+  }
+
+  /// Debug log for location resolution — only in debug builds.
+  void _logLocation(String city, double? lat, double? lon) {
+    assert(() {
+      if (lat != null && lon != null) {
+        debugPrint(
+          '[MausamLocation] GPS city: $city '
+          'lat: ${lat.toStringAsFixed(4)} '
+          'lon: ${lon.toStringAsFixed(4)}',
+        );
+      } else {
+        debugPrint('[MausamLocation] No GPS fix — using fallback city: $city');
+      }
+      return true;
+    }());
   }
 
   /// Maps Flutter's Persona enum values to the backend persona strings.
@@ -154,6 +207,7 @@ class _MausamAppState extends State<MausamApp> {
   @override
   void dispose() {
     _personaNotifier.removeListener(_onPersonaChanged);
+    _locationNotifier.removeListener(_onLocationChanged);
     _personaNotifier.dispose();
     _locationNotifier.dispose();
     _backendCardOrderNotifier.dispose();

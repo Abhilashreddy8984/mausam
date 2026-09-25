@@ -4,7 +4,7 @@
 // HTTP client for the Mausam FastAPI backend.
 //
 // Single public method:
-//   fetchHomepage(persona, city) → HomepageResponse
+//   fetchHomepage(persona, city, latitude?, longitude?) → HomepageResponse
 //
 // Design rules:
 //   - Never throws. Returns null on any failure so callers can
@@ -12,6 +12,8 @@
 //   - Debug logging only — no secrets, no PII logged.
 //   - URI is always constructed with Uri() — no string concatenation.
 //   - Timeout is enforced; backend unavailability fails fast.
+//   - latitude/longitude are optional — omitted entirely from the
+//     URL when null so existing backend tests remain unaffected.
 // ============================================================
 
 import 'dart:async';
@@ -37,18 +39,37 @@ class ApiService {
   ///
   /// Parameters
   /// ----------
-  /// [persona] : Backend persona string, e.g. "farmer", "student".
-  /// [city]    : City name, e.g. "Hyderabad".
+  /// [persona]   : Backend persona string, e.g. "farmer", "student".
+  /// [city]      : City name, e.g. "Hyderabad".
+  /// [latitude]  : Optional decimal latitude from the device GPS fix.
+  ///               When provided, sent to the backend so it can be
+  ///               stored in RankingContext and used by future
+  ///               coordinate-aware weather providers (e.g. IMD).
+  /// [longitude] : Optional decimal longitude. Always paired with
+  ///               [latitude] — omit both or supply both.
   static Future<HomepageResponse?> fetchHomepage({
     required String persona,
     required String city,
+    double? latitude,
+    double? longitude,
   }) async {
-    final uri = Uri.parse(kApiBaseUrl).replace(
-      path: '/homepage',
-      queryParameters: {'persona': persona, 'city': city},
-    );
+    // Build query parameters — only include lat/lon when both are present
+    final Map<String, String> queryParams = {'persona': persona, 'city': city};
 
-    _log('Requesting homepage — persona: $persona | city: $city');
+    if (latitude != null && longitude != null) {
+      // 6 decimal places ≈ 0.1 m precision — more than sufficient
+      queryParams['latitude'] = latitude.toStringAsFixed(6);
+      queryParams['longitude'] = longitude.toStringAsFixed(6);
+    }
+
+    final uri = Uri.parse(kApiBaseUrl)
+        .replace(path: '/homepage', queryParameters: queryParams);
+
+    _log(
+      'Requesting homepage — persona: $persona | city: $city'
+      '${latitude != null ? " | lat: ${latitude.toStringAsFixed(4)}"
+                " lon: ${longitude!.toStringAsFixed(4)}" : " | no GPS coords"}',
+    );
     _log('API URL: $uri');
 
     try {
@@ -68,17 +89,17 @@ class ApiService {
         _log('Backend error ${response.statusCode}: ${response.body}');
         return null;
       }
-    } on SocketException catch (e) {
-      _log('Network error (backend unreachable?): $e');
-      return null;
-    } on http.ClientException catch (e) {
-      _log('HTTP client error: $e');
-      return null;
     } on TimeoutException catch (_) {
       _log(
         'Request timed out after ${kApiTimeout.inSeconds}s — '
         'falling back to demo data',
       );
+      return null;
+    } on SocketException catch (e) {
+      _log('Network error (backend unreachable?): $e');
+      return null;
+    } on http.ClientException catch (e) {
+      _log('HTTP client error: $e');
       return null;
     } catch (e) {
       _log('Unexpected error: $e');
