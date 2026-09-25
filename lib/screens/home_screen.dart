@@ -10,7 +10,8 @@
 //   B. Current Hero   – temperature, condition, key metrics
 //   C. Persona Strip  – active profile badge + Change button
 //   D. "Why you're seeing this" explanation bar
-//   E. Personalized Cards – ordered by Persona.cardPriority
+//   E. Personalized Cards – ordered by backend API rank,
+//                           falls back to Persona.cardPriority
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -31,11 +32,17 @@ class HomeScreen extends StatefulWidget {
   final WeatherData weather;
   final LocationNotifier locationNotifier;
 
+  /// Ranked card type strings delivered by the FastAPI backend.
+  /// When the backend is available this drives the card order.
+  /// When null the screen falls back to persona.cardPriority.
+  final ValueNotifier<List<String>?> backendCardOrderNotifier;
+
   const HomeScreen({
     super.key,
     required this.personaNotifier,
     required this.weather,
     required this.locationNotifier,
+    required this.backendCardOrderNotifier,
   });
 
   @override
@@ -50,6 +57,25 @@ class _HomeScreenState extends State<HomeScreen> {
   // data is refreshed (future: rebuild on new API response).
   late final List<WeatherCardData> _catalogue;
 
+  // ── Maps backend card type strings → Flutter WeatherCardType ──
+  //
+  // The backend uses snake_case strings (e.g. "rain_alert").
+  // Flutter uses a WeatherCardType enum.
+  // Types that exist in the backend but not in Flutter's enum
+  // (e.g. "feels_like", "sunrise_sunset", "pollen") are omitted
+  // from this map — those backend cards are simply skipped when
+  // building the rank, so the unmapped Flutter cards fall to the
+  // end in their natural catalogue order.
+  static const Map<String, WeatherCardType> _backendTypeMap = {
+    'rain_alert': WeatherCardType.rain,
+    'temperature': WeatherCardType.temperature,
+    'humidity': WeatherCardType.humidity,
+    'wind_speed': WeatherCardType.wind,
+    'uv_index': WeatherCardType.uvIndex,
+    'air_quality': WeatherCardType.aqi,
+    'visibility': WeatherCardType.visibility,
+  };
+
   @override
   void initState() {
     super.initState();
@@ -57,7 +83,50 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ── Card ordering ───────────────────────────────────────────
-  List<WeatherCardData> _sortedCards(Persona persona) {
+  //
+  // Priority chain:
+  //   1. Backend ranked order (when available)
+  //   2. Local persona.cardPriority (fallback)
+  //
+  // The backend order is read from backendCardOrderNotifier
+  // inside the ValueListenableBuilder in build(), so a fresh
+  // backend response automatically triggers a UI rebuild with
+  // the new ordering — no setState() needed here.
+  List<WeatherCardData> _sortedCards(
+    Persona persona,
+    List<String>? backendOrder,
+  ) {
+    if (backendOrder != null && backendOrder.isNotEmpty) {
+      return _sortedByBackend(backendOrder);
+    }
+    return _sortedByPersona(persona);
+  }
+
+  /// Sort using the ordered list of type strings from the backend.
+  /// Backend-mapped cards come first (in backend rank order).
+  /// Unmapped Flutter cards (farmAdvisory, travelAdvisory, etc.)
+  /// are appended at the end in their original catalogue order.
+  List<WeatherCardData> _sortedByBackend(List<String> backendOrder) {
+    // Build rank map: WeatherCardType → position index
+    final Map<WeatherCardType, int> rank = {};
+    int idx = 0;
+    for (final typeStr in backendOrder) {
+      final flutterType = _backendTypeMap[typeStr];
+      if (flutterType != null && !rank.containsKey(flutterType)) {
+        rank[flutterType] = idx++;
+      }
+    }
+    // Cards with no backend mapping get rank 9000 + original position,
+    // preserving their relative catalogue order at the end.
+    return List<WeatherCardData>.from(_catalogue)..sort((a, b) {
+      final ra = rank[a.type] ?? (9000 + _catalogue.indexOf(a));
+      final rb = rank[b.type] ?? (9000 + _catalogue.indexOf(b));
+      return ra.compareTo(rb);
+    });
+  }
+
+  /// Fallback: sort using local persona.cardPriority list.
+  List<WeatherCardData> _sortedByPersona(Persona persona) {
     final priority = persona.cardPriority;
     final Map<WeatherCardType, int> rank = {
       for (int i = 0; i < priority.length; i++) priority[i]: i,
@@ -104,49 +173,67 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<Persona>(
-      valueListenable: widget.personaNotifier,
-      builder: (context, persona, _) {
-        final sorted = _sortedCards(persona);
+    // Outer listener: backend card order (drives card ranking).
+    // Rebuilds the card grid whenever the backend responds or clears.
+    return ValueListenableBuilder<List<String>?>(
+      valueListenable: widget.backendCardOrderNotifier,
+      builder: (context, backendOrder, _) {
+        // Inner listener: selected persona (drives everything else).
+        return ValueListenableBuilder<Persona>(
+          valueListenable: widget.personaNotifier,
+          builder: (context, persona, _) {
+            final sorted = _sortedCards(persona, backendOrder);
 
-        return Scaffold(
-          backgroundColor: const Color(0xFFF5F7FA),
-          body: SafeArea(
-            child: CustomScrollView(
-              controller: _scrollController,
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                SliverToBoxAdapter(child: _buildHeader(context)),
-                // ── Location bar (GPS coordinates strip) ──
-                // Shows detected coordinates once permission
-                // is granted. Sits just below the app header
-                // without disturbing any existing layout.
-                SliverToBoxAdapter(
-                  child: LocationBar(locationNotifier: widget.locationNotifier),
-                ),
-                SliverToBoxAdapter(child: _buildCurrentWeatherHero(context)),
-                SliverToBoxAdapter(child: _buildPersonaStrip(context, persona)),
-                SliverToBoxAdapter(child: _buildWhySection(context, persona)),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                  sliver: SliverToBoxAdapter(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 350),
-                      switchInCurve: Curves.easeOut,
-                      child: WeatherCardGrid(
-                        key: ValueKey(persona),
-                        cards: sorted,
-                        onCardTap: _openDetail,
+            return Scaffold(
+              backgroundColor: const Color(0xFFF5F7FA),
+              body: SafeArea(
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(child: _buildHeader(context)),
+                    // ── Location bar (GPS coordinates strip) ──
+                    // Shows detected coordinates once permission
+                    // is granted. Sits just below the app header
+                    // without disturbing any existing layout.
+                    SliverToBoxAdapter(
+                      child: LocationBar(
+                        locationNotifier: widget.locationNotifier,
                       ),
                     ),
-                  ),
+                    SliverToBoxAdapter(
+                      child: _buildCurrentWeatherHero(context),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _buildPersonaStrip(context, persona),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _buildWhySection(context, persona),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      sliver: SliverToBoxAdapter(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 350),
+                          switchInCurve: Curves.easeOut,
+                          child: WeatherCardGrid(
+                            // Key includes backendOrder length so the grid
+                            // re-animates when the backend response arrives.
+                            key: ValueKey('${persona}_${backendOrder?.length}'),
+                            cards: sorted,
+                            onCardTap: _openDetail,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(child: _buildFooter(context)),
+                  ],
                 ),
-                SliverToBoxAdapter(child: _buildFooter(context)),
-              ],
-            ),
-          ),
+              ),
+            );
+          }, // inner ValueListenableBuilder (persona)
         );
-      },
+      }, // outer ValueListenableBuilder (backendCardOrder)
     );
   }
 

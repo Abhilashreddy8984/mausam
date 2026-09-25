@@ -1,8 +1,8 @@
 // ============================================================
 // screens/main_shell.dart
 // Bottom-nav shell. Receives AppPersonaNotifier, WeatherData,
-// and LocationNotifier from main.dart and threads them into
-// the screens that need them.
+// LocationNotifier, and backendCardOrderNotifier from main.dart
+// and threads them into the screens that need them.
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -19,11 +19,17 @@ class MainShell extends StatefulWidget {
   final WeatherData weather;
   final LocationNotifier locationNotifier;
 
+  /// Ordered card type strings from the FastAPI backend.
+  /// Passed through to HomeScreen for backend-driven card ordering.
+  /// null = backend unavailable; HomeScreen falls back to local ordering.
+  final ValueNotifier<List<String>?> backendCardOrderNotifier;
+
   const MainShell({
     super.key,
     required this.personaNotifier,
     required this.weather,
     required this.locationNotifier,
+    required this.backendCardOrderNotifier,
   });
 
   @override
@@ -37,13 +43,14 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
 
-    // LocationNotifier is only needed by HomeScreen for the
-    // location bar — Explore and Alerts don't use it.
+    // LocationNotifier and backendCardOrderNotifier are only needed
+    // by HomeScreen — Explore and Alerts don't use them.
     final pages = [
       HomeScreen(
         personaNotifier: widget.personaNotifier,
         weather: widget.weather,
         locationNotifier: widget.locationNotifier,
+        backendCardOrderNotifier: widget.backendCardOrderNotifier,
       ),
       ExploreScreen(
         personaNotifier: widget.personaNotifier,
@@ -55,31 +62,31 @@ class _MainShellState extends State<MainShell> {
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: pages),
       bottomNavigationBar: NavigationBar(
-  selectedIndex: _currentIndex,
-  onDestinationSelected: (i) => setState(() => _currentIndex = i),
-  backgroundColor: Colors.white,
-  surfaceTintColor: Colors.transparent,
-  indicatorColor: primary.withValues(alpha: 0.12),
-  elevation: 0,
-  labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-  destinations: const [
-    NavigationDestination(
-      icon: Icon(Icons.home_outlined),
-      selectedIcon: Icon(Icons.home),
-      label: 'Home',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.explore_outlined),
-      selectedIcon: Icon(Icons.explore),
-      label: 'Explore',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.notifications_outlined),
-      selectedIcon: Icon(Icons.notifications),
-      label: 'Alerts',
-    ),
-  ],
-),
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (i) => setState(() => _currentIndex = i),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: primary.withValues(alpha: 0.12),
+        elevation: 0,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.explore_outlined),
+            selectedIcon: Icon(Icons.explore),
+            label: 'Explore',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.notifications_outlined),
+            selectedIcon: Icon(Icons.notifications),
+            label: 'Alerts',
+          ),
+        ],
+      ),
     );
   }
 }
