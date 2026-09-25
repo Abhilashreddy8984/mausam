@@ -1,31 +1,40 @@
 """
-Weather Service
-===============
-All weather data originates here — nowhere else.
+Demo Weather Provider
+=====================
+Implements WeatherProvider using hard-coded demo values for Hyderabad.
 
-DemoWeatherService
-------------------
-Returns hard-coded demo values for Hyderabad.
-This is the ONLY place demo values live.
+This is the DEFAULT provider for local development and the SIH prototype.
 
-To switch to a real IMD API later:
-  1. Create a new class, e.g.  IMDWeatherService
-  2. Implement the same  get_weather(city: str) -> WeatherResponse  interface
-  3. Swap the import in routes.py — zero other changes needed.
+⚠  ALL demo weather values live only in this file.
+   Do not scatter hard-coded weather values anywhere else in the backend.
+
+Replacing this provider with a real API
+----------------------------------------
+  1. Create a new class (e.g. IMDWeatherProvider) in its own file.
+  2. Implement the same WeatherProvider interface (get_weather method).
+  3. Register the new class in app/services/provider_factory.py.
+  4. Set WEATHER_PROVIDER=imd (or the chosen key) in your environment.
+  5. Routes, ranking, and Flutter require zero changes.
 """
 
 from app.models.weather import WeatherCard, WeatherResponse
+from app.services.weather_provider import LocationQuery, WeatherProvider
 
 
-class DemoWeatherService:
+class DemoWeatherProvider(WeatherProvider):
     """
-    Demo implementation that returns static weather data.
-    Fulfils the WeatherService contract so it can be swapped
-    for a real API service without touching routes or the Flutter UI.
+    Returns static demo weather data.
+
+    Falls back to Hyderabad data for any unknown city so the app always
+    returns a valid response during development.
+
+    source = "demo" is set on every response so callers can identify
+    that the data is not live.
     """
 
     # ------------------------------------------------------------------ #
-    # Demo weather values — edit ONLY here, never in routes or models.    #
+    # Demo weather values                                                  #
+    # Edit ONLY here — never in routes, models, or ranking.               #
     # ------------------------------------------------------------------ #
     _DEMO_DATA: dict = {
         "Hyderabad": {
@@ -108,24 +117,31 @@ class DemoWeatherService:
         }
     }
 
-    def get_weather(self, city: str) -> WeatherResponse:
+    def get_weather(self, location: LocationQuery) -> WeatherResponse:
         """
-        Return weather data for the requested city.
+        Return demo weather data for the requested city.
 
         Falls back to Hyderabad demo data for any unknown city so the
         app always returns a valid response during the MVP phase.
         """
-        city_key = city.strip().title()
+        city_key = location.city.strip().title()
         data = self._DEMO_DATA.get(city_key, self._DEMO_DATA["Hyderabad"])
 
         # Build fresh WeatherCard list (copies, not shared references)
         cards = [card.model_copy() for card in data["cards"]]
 
+        display_city = (
+            city_key
+            if city_key in self._DEMO_DATA
+            else f"{location.city} (demo: Hyderabad)"
+        )
+
         return WeatherResponse(
-            city=city_key if city_key in self._DEMO_DATA else f"{city} (demo: Hyderabad)",
+            city=display_city,
             temperature=data["temperature"],
             humidity=data["humidity"],
             wind_speed=data["wind_speed"],
             condition=data["condition"],
             cards=cards,
+            source="demo",  # identifies this as demo data
         )

@@ -1,8 +1,15 @@
 """
 Pydantic models for weather data.
 
-WeatherCard  - a single ranked card shown on the homepage.
+WeatherCard     - a single ranked card shown on the homepage.
 WeatherResponse - the full weather payload for a city.
+
+Change log
+----------
+v0.2  Added optional `source` field to WeatherResponse.
+      The field is Optional[str] with a default of None so that:
+        - existing Flutter code that does not read `source` is unaffected
+        - new integrations can inspect which provider produced the data
 """
 
 from typing import List, Optional
@@ -20,16 +27,17 @@ class WeatherCard(BaseModel):
     value    : The numeric or textual measurement value.
     unit     : Unit of measurement, e.g. "°C", "%", "km/h".
     severity : One of "low" | "medium" | "high" — drives UI colour coding.
-    score    : Relevance score assigned by the ranking service (higher = more relevant).
-               Flutter UI uses this to order cards. Not shown to the user directly.
+    score    : Relevance score assigned by the ranking service (higher = more
+               relevant). Flutter UI uses this to order cards. Not shown to
+               the user directly.
     """
 
     type: str
     title: str
     value: str
     unit: str
-    severity: str          # "low" | "medium" | "high"
-    score: float = 0.0     # assigned by RankingService; default 0
+    severity: str       # "low" | "medium" | "high"
+    score: float = 0.0  # assigned by RankingService; default 0
 
 
 class WeatherResponse(BaseModel):
@@ -43,7 +51,13 @@ class WeatherResponse(BaseModel):
     humidity    : Relative humidity percentage.
     wind_speed  : Wind speed in km/h.
     condition   : Short text description, e.g. "Partly Cloudy".
-    cards       : List of WeatherCards, ordered by relevance for the requested persona.
+    cards       : List of WeatherCards, ordered by relevance for the persona.
+    source      : (optional) Which weather provider produced this response.
+                  "demo" for DemoWeatherProvider.
+                  "IMD"  for the future IMDWeatherProvider.
+                  None   when the provider does not set a source tag.
+                  Flutter ignores unknown / missing fields, so this is
+                  fully backward-compatible with the existing Flutter model.
     """
 
     city: str
@@ -52,3 +66,4 @@ class WeatherResponse(BaseModel):
     wind_speed: float
     condition: str
     cards: List[WeatherCard]
+    source: Optional[str] = None  # backward-compatible; Flutter ignores it
