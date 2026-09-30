@@ -10,7 +10,7 @@ fastapi==0.115.12
 uvicorn[standard]==0.34.3
 
 # Data validation — FastAPI depends on this
-pydantic==2.11.4
+pydantic==2.13.5
 
 # Environment variable loading from .env files
 # Used by app/config/settings.py — safe default if absent (uses OS env vars)
