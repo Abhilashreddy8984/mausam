@@ -1,0 +1,9 @@
+{
+  "_comment": "MOCK DATA — malformed response: temperature is a non-numeric string.",
+  "_comment2": "Tests that the mapper handles bad data without crashing.",
+  "Station_Name": "BadCity",
+  "Temp": "N/A",
+  "RH": "abc",
+  "Wind_Speed": "",
+  "Weather_Desc": ""
+}

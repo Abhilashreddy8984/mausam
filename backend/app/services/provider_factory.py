@@ -8,54 +8,53 @@ Routes never import DemoWeatherProvider or IMDWeatherProvider directly.
 
 Provider selection
 ------------------
-The active provider is chosen by the WEATHER_PROVIDER environment variable.
+The active provider is chosen by the WEATHER_PROVIDER environment variable,
+which is loaded from backend/.env (via settings.py) or from the OS env.
 
-  WEATHER_PROVIDER=demo    → DemoWeatherProvider  (default)
-  WEATHER_PROVIDER=imd     → IMDWeatherProvider   (not yet implemented)
+  WEATHER_PROVIDER=demo    → DemoWeatherProvider  (default, no credentials)
+  WEATHER_PROVIDER=imd     → IMDWeatherProvider   (requires IMD credentials)
 
-The default is "demo" — the application works with no .env file at all.
+Default
+-------
+"demo" — the application works with no .env file at all.
 
-How to set the provider
------------------------
-  Windows PowerShell:
-    $env:WEATHER_PROVIDER = "demo"
-    uvicorn app.main:app --reload
+Security
+--------
+Never put API keys or credentials in this file or in source code.
+Use environment variables (see backend/.env.example for a template).
 
-  Linux / macOS:
-    WEATHER_PROVIDER=demo uvicorn app.main:app --reload
-
-  .env file (optional — requires python-dotenv to auto-load):
-    WEATHER_PROVIDER=demo
-
-⚠  Never put API keys or credentials in this file or in source code.
-   Use environment variables for all secrets.
+Configuration error behaviour
+------------------------------
+If WEATHER_PROVIDER=imd but IMD_API_KEY / IMD_CURRENT_WX_URL are absent,
+get_provider() raises ConfigurationError with an actionable message.
+This is intentional — we must never silently return demo data when the
+operator explicitly requested live IMD data.
 
 TODO (caching)
 --------------
-A lightweight cache (e.g. functools.lru_cache, cachetools TTLCache,
-or a Redis client) should be inserted here — between get_provider()
-and the actual provider call — once the IMD integration is active.
-This avoids hitting the IMD API on every request and respects any
-rate limits specified in the official IMD API documentation.
+A lightweight cache (e.g. cachetools TTLCache) should be inserted between
+get_provider() and the actual provider.get_weather() call once IMD is active.
+Cache TTL should match the IMD API refresh rate from the official docs.
 """
 
-import os
-
+from app.config.settings import (
+    WEATHER_PROVIDER,
+    ConfigurationError,
+    require_imd_config,
+)
 from app.services.weather_provider import WeatherProvider
 
 # ---------------------------------------------------------------------------
-# Registry — maps the WEATHER_PROVIDER string to a provider class.
-# Add new providers here; nothing else in the codebase needs to change.
+# Registry keys
 # ---------------------------------------------------------------------------
-_PROVIDER_KEY_DEMO = "demo"
-_PROVIDER_KEY_IMD  = "imd"
+_KEY_DEMO = "demo"
+_KEY_IMD  = "imd"
 
-# Default if WEATHER_PROVIDER env var is absent or empty.
-_DEFAULT_PROVIDER_KEY = _PROVIDER_KEY_DEMO
+_DEFAULT_KEY = _KEY_DEMO
 
-# Lazy registry — providers are imported only when requested so the
-# application starts without errors even if optional dependencies
-# (e.g. an IMD SDK) are not installed.
+# Lazy registry — providers are imported only when requested.
+# This means the app starts cleanly even if optional dependencies
+# (e.g. requests) are not yet installed in the current environment.
 _REGISTRY: dict[str, type] = {}
 
 
@@ -65,44 +64,48 @@ def _build_registry() -> dict[str, type]:
     from app.services.imd_weather_provider import IMDWeatherProvider
 
     return {
-        _PROVIDER_KEY_DEMO: DemoWeatherProvider,
-        _PROVIDER_KEY_IMD:  IMDWeatherProvider,
+        _KEY_DEMO: DemoWeatherProvider,
+        _KEY_IMD:  IMDWeatherProvider,
     }
 
 
 def get_provider() -> WeatherProvider:
     """
-    Return a WeatherProvider instance based on the WEATHER_PROVIDER
-    environment variable.
+    Return a WeatherProvider instance for the currently configured provider.
+
+    Reads WEATHER_PROVIDER from settings (already loaded from .env by
+    settings.py at import time).
 
     Returns
     -------
-    WeatherProvider
-        An instance of the configured provider class.
+    WeatherProvider instance ready to call .get_weather(location).
 
     Raises
     ------
+    ConfigurationError
+        If WEATHER_PROVIDER=imd but required IMD credentials are absent.
     ValueError
         If WEATHER_PROVIDER is set to an unrecognised value.
-
-    Examples
-    --------
-    >>> provider = get_provider()          # → DemoWeatherProvider()
-    >>> response = provider.get_weather(LocationQuery(city="Hyderabad"))
     """
     global _REGISTRY
     if not _REGISTRY:
         _REGISTRY = _build_registry()
 
-    key = os.getenv("WEATHER_PROVIDER", _DEFAULT_PROVIDER_KEY).strip().lower()
+    key = WEATHER_PROVIDER  # already lowercased + stripped in settings.py
 
     if key not in _REGISTRY:
         supported = sorted(_REGISTRY.keys())
         raise ValueError(
             f"Unknown WEATHER_PROVIDER='{key}'. "
             f"Supported values: {supported}. "
-            f"Defaulting to '{_DEFAULT_PROVIDER_KEY}' if this variable is unset."
+            f"Set WEATHER_PROVIDER=demo to use demo data without credentials."
         )
 
-    provider_class = _REGISTRY[key]
-    return provider_class()
+    # ── IMD-specific pre-flight check ──────────────────────────────────────
+    # Validate that all required IMD environment variables are present
+    # BEFORE instantiating the provider, so callers receive a clear
+    # ConfigurationError rather than a cryptic AttributeError or HTTP 401.
+    if key == _KEY_IMD:
+        require_imd_config()  # raises ConfigurationError if key/URL missing
+
+    return _REGISTRY[key]()

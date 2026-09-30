@@ -1,0 +1,22 @@
+{
+  "_comment": "MOCK DATA — representative of IMD nowcast_district_api.php response.",
+  "_comment2": "NOT live IMD data. Used for unit tests only.",
+  "District": "Hyderabad",
+  "State": "Telangana",
+  "Nowcast": [
+    {
+      "Phenomenon": "Thunderstorm",
+      "Severity": "medium",
+      "Description": "Thunderstorm likely within next 3 hours over parts of Hyderabad district.",
+      "Issued_Time": "2026-09-27T14:00:00+05:30",
+      "Valid_Until": "2026-09-27T17:00:00+05:30"
+    },
+    {
+      "Phenomenon": "Heavy Rain",
+      "Severity": "high",
+      "Description": "Heavy rainfall expected in low-lying areas, waterlogging possible.",
+      "Issued_Time": "2026-09-27T14:00:00+05:30",
+      "Valid_Until": "2026-09-27T20:00:00+05:30"
+    }
+  ]
+}

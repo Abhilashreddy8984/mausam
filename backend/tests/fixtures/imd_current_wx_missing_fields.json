@@ -1,0 +1,9 @@
+{
+  "_comment": "MOCK DATA — minimal response with many optional fields absent.",
+  "_comment2": "Tests that the mapper handles missing/null fields gracefully.",
+  "Station_Name": "SomeCity",
+  "Temp": "28.5",
+  "RH": "72",
+  "Wind_Speed": "10",
+  "Weather_Desc": "Cloudy"
+}

@@ -11,3 +11,12 @@ uvicorn[standard]==0.34.3
 
 # Data validation — FastAPI depends on this
 pydantic==2.11.4
+
+# Environment variable loading from .env files
+# Used by app/config/settings.py — safe default if absent (uses OS env vars)
+python-dotenv==1.1.0
+
+# HTTP client for outbound API requests (IMD weather API calls)
+# requests is synchronous; suitable for the current single-threaded
+# provider calls. Switch to httpx[async] if async providers are needed.
+requests==2.32.3

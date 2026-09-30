@@ -1,0 +1,73 @@
+{
+  "_comment": "MOCK DATA — representative of IMD cityweather_loc.php 7-day forecast response.",
+  "_comment2": "NOT live IMD data. Used for unit tests only.",
+  "City": "Hyderabad",
+  "State": "Telangana",
+  "Lat": "17.45",
+  "Lon": "78.47",
+  "Forecast": [
+    {
+      "Date": "2026-09-27",
+      "Max_Temp": "36.0",
+      "Min_Temp": "25.0",
+      "Rainfall": "0.0",
+      "Rain_Prob": "10",
+      "Weather_Desc": "Partly Cloudy",
+      "Weather_Code": "03"
+    },
+    {
+      "Date": "2026-09-28",
+      "Max_Temp": "34.5",
+      "Min_Temp": "24.0",
+      "Rainfall": "5.2",
+      "Rain_Prob": "70",
+      "Weather_Desc": "Light Rain",
+      "Weather_Code": "61"
+    },
+    {
+      "Date": "2026-09-29",
+      "Max_Temp": "31.0",
+      "Min_Temp": "23.5",
+      "Rainfall": "15.0",
+      "Rain_Prob": "85",
+      "Weather_Desc": "Moderate Rain",
+      "Weather_Code": "63"
+    },
+    {
+      "Date": "2026-09-30",
+      "Max_Temp": "30.0",
+      "Min_Temp": "23.0",
+      "Rainfall": "8.0",
+      "Rain_Prob": "60",
+      "Weather_Desc": "Thunderstorm",
+      "Weather_Code": "95"
+    },
+    {
+      "Date": "2026-10-01",
+      "Max_Temp": "32.0",
+      "Min_Temp": "24.0",
+      "Rainfall": "2.0",
+      "Rain_Prob": "40",
+      "Weather_Desc": "Partly Cloudy",
+      "Weather_Code": "03"
+    },
+    {
+      "Date": "2026-10-02",
+      "Max_Temp": "34.0",
+      "Min_Temp": "24.5",
+      "Rainfall": "0.0",
+      "Rain_Prob": "15",
+      "Weather_Desc": "Sunny",
+      "Weather_Code": "01"
+    },
+    {
+      "Date": "2026-10-03",
+      "Max_Temp": "35.5",
+      "Min_Temp": "25.0",
+      "Rainfall": "0.0",
+      "Rain_Prob": "5",
+      "Weather_Desc": "Clear Sky",
+      "Weather_Code": "00"
+    }
+  ]
+}

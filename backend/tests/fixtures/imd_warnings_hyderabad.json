@@ -1,0 +1,26 @@
+{
+  "_comment": "MOCK DATA — representative of IMD warnings_district_api.php response.",
+  "_comment2": "NOT live IMD data. Used for unit tests only.",
+  "District": "Hyderabad",
+  "State": "Telangana",
+  "Warnings": [
+    {
+      "Warning_Type": "Yellow Alert",
+      "Severity": "medium",
+      "Title": "Thunderstorm Warning",
+      "Description": "Thunderstorm with lightning and gusty winds likely during evening hours.",
+      "Valid_From": "2026-09-27T15:00:00+05:30",
+      "Valid_Until": "2026-09-27T21:00:00+05:30",
+      "Source": "IMD"
+    },
+    {
+      "Warning_Type": "Orange Alert",
+      "Severity": "high",
+      "Title": "Heavy Rainfall Warning",
+      "Description": "Heavy to very heavy rainfall expected in isolated places.",
+      "Valid_From": "2026-09-28T06:00:00+05:30",
+      "Valid_Until": "2026-09-28T18:00:00+05:30",
+      "Source": "IMD"
+    }
+  ]
+}

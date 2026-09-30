@@ -1,0 +1,23 @@
+{
+  "_comment": "MOCK DATA — representative of IMD current_wx_api.php response structure.",
+  "_comment2": "This is NOT live IMD data. Used for unit tests only.",
+  "_comment3": "Field names and structure are based on publicly documented IMD API schema.",
+  "Station_Name": "Hyderabad",
+  "District": "Hyderabad",
+  "State": "Telangana",
+  "Lat": "17.45",
+  "Lon": "78.47",
+  "Temp": "33.2",
+  "Feels_Like": "37.0",
+  "RH": "65",
+  "Wind_Speed": "18",
+  "Wind_Dir": "SW",
+  "Rainfall": "0.0",
+  "Cloud_Cover": "5",
+  "Pressure": "997.8",
+  "Visibility": "6.0",
+  "UV_Index": "8",
+  "Weather_Desc": "Partly Cloudy",
+  "Weather_Code": "03",
+  "Obs_Time": "2026-09-27T09:30:00+05:30"
+}
