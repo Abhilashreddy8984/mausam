@@ -342,8 +342,88 @@ def _build_cards(
 # Public mapper functions
 # ---------------------------------------------------------------------------
 
+def _normalize_current_response(current_json: Any) -> dict:
+    """
+    Normalize the current_wx response to a single station dict.
+
+    The official IMD current_wx endpoint returns a JSON ARRAY of station
+    objects, for example:
+
+        [
+          {"Station Id": "43128", "Station": "Hyderabad", "Temperature": "30", ...},
+          {"Station Id": "43129", "Station": "Secunderabad", ...}
+        ]
+
+    Station selection logic:
+      1. If a station ID is configured (IMD_STATION_ID env var), select the
+         dict whose "Station Id" matches it.
+      2. If the configured station is NOT found in the list, fail safely by
+         returning an empty dict — we never silently use another city's
+         weather.
+      3. If no station ID is configured (None), fall back to the first dict
+         in the list (backward compatibility for tests and single-station
+         responses).
+
+    If the response is already a dict (single-station shape), it is
+    returned unchanged so existing fixtures and tests continue to work.
+
+    Returns an empty dict for None, empty list, or unexpected types so
+    downstream .get() calls never raise.
+    """
+    if current_json is None:
+        return {}
+    if isinstance(current_json, dict):
+        return current_json
+    if isinstance(current_json, list):
+        if not current_json:
+            logger.warning("IMD current_wx returned an empty list.")
+            return {}
+
+        # Read the configured station ID from settings at call time
+        # so tests can patch it and production picks up .env values.
+        from app.config import settings as _s
+        configured_station_id = _s.IMD_STATION_ID
+
+        # ── If a station ID is configured, select the matching station ──
+        if configured_station_id:
+            target_id = str(configured_station_id).strip()
+            for item in current_json:
+                if not isinstance(item, dict):
+                    continue
+                item_id = _safe_str(item.get("Station Id"))
+                if item_id is not None and item_id == target_id:
+                    return item
+            # Configured station not found — fail safely
+            available = [
+                _safe_str(item.get("Station Id"))
+                for item in current_json
+                if isinstance(item, dict)
+            ]
+            logger.warning(
+                "IMD current_wx list did not contain station Id='%s'. "
+                "Available station IDs: %s. "
+                "Returning empty response — will NOT use another city's weather.",
+                target_id,
+                available,
+            )
+            return {}
+
+        # ── No station ID configured — fall back to first dict ──
+        for item in current_json:
+            if isinstance(item, dict):
+                return item
+        logger.warning("IMD current_wx list contained no dict objects.")
+        return {}
+
+    logger.warning(
+        "IMD current_wx response was neither a dict nor a list (got %s).",
+        type(current_json).__name__,
+    )
+    return {}
+
+
 def map_current_weather(
-    current_json: dict,
+    current_json: dict | list | None,
     forecast_json: dict | None = None,
     warnings_json: dict | None = None,
     nowcast_json: dict | None = None,
@@ -354,6 +434,11 @@ def map_current_weather(
     Parameters
     ----------
     current_json   : Parsed JSON from current_wx endpoint.
+                     May be a dict (single station) or a list of station
+                     dicts (official array response). A list is normalized
+                     to the station whose "Station Id" matches the configured
+                     IMD_STATION_ID, with safe fallback to an empty response
+                     if the configured station is not found.
     forecast_json  : Parsed JSON from cityforecastloc endpoint (optional).
     warnings_json  : Parsed JSON from districtwarning endpoint (optional).
     nowcast_json   : Parsed JSON from districtnowcast endpoint (optional).
@@ -386,6 +471,12 @@ def map_current_weather(
     These remain supported if present in the response (some stations
     may return extended fields), but are not required.
     """
+    # ── Normalize: official current_wx returns a list of station objects ─
+    # Select the station whose "Station Id" matches the configured
+    # IMD_STATION_ID, with safe fallback if not found. If the response is
+    # already a single dict it is used as-is.
+    current_json = _normalize_current_response(current_json)
+
     # ── Parse current weather fields ──────────────────────────
     # Try official field names first, fall back to legacy names.
 

@@ -497,6 +497,68 @@ class TestOfficialFieldNames:
         resp = map_current_weather(_OFFICIAL_RAIN)
         assert "moderate" in resp.condition.lower() or "rain" in resp.condition.lower()
 
+    # ── List normalization (official current_wx array response) ──────
+    # The official current_wx endpoint returns a JSON array of station
+    # objects. The mapper must select the station whose "Station Id"
+    # matches the configured IMD_STATION_ID, NOT simply the first one.
+
+    def test_O16_configured_station_selected_when_multiple_present(self):
+        """Configured station is selected when multiple stations are present."""
+        # 42867 is the FIRST station in the list (matches _OFFICIAL_FULL fixture)
+        list_response = [
+            _OFFICIAL_FULL,  # Station Id 42867
+            {"Station Id": "99999", "Station": "OTHER", "Temperature": "10"},
+        ]
+        with patch("app.config.settings.IMD_STATION_ID", "42867"):
+            resp = map_current_weather(list_response)
+        assert resp.city == "HYDERABAD"
+        assert resp.temperature == pytest.approx(33.2, abs=0.01)
+        assert resp.source == "IMD"
+
+    def test_O17_non_first_station_selected(self):
+        """A non-first station can be selected when it matches the configured ID."""
+        # 42867 is the SECOND station — the first is a different city
+        other_station = {
+            "Station Id": "99999",
+            "Station": "OTHER_CITY",
+            "Temperature": "10",
+            "Humidity": "50",
+        }
+        list_response = [other_station, _OFFICIAL_FULL]  # 42867 is second
+        with patch("app.config.settings.IMD_STATION_ID", "42867"):
+            resp = map_current_weather(list_response)
+        assert resp.city == "HYDERABAD", "Must select 42867 (Hyderabad), not the first station"
+        assert resp.temperature == pytest.approx(33.2, abs=0.01)
+
+    def test_O18_missing_configured_station_handled_safely(self):
+        """If the configured station is not in the list, fail safely — no other city's weather."""
+        list_response = [
+            {"Station Id": "99999", "Station": "OTHER_CITY", "Temperature": "10"},
+            {"Station Id": "88888", "Station": "ANOTHER", "Temperature": "20"},
+        ]
+        with patch("app.config.settings.IMD_STATION_ID", "42867"):
+            resp = map_current_weather(list_response)
+        # Must NOT return OTHER_CITY's data — safe defaults instead
+        assert resp.city == "Unknown"
+        assert resp.temperature == 0.0
+        assert resp.source == "IMD"  # still marked as IMD source
+
+    def test_O19_single_dict_response_still_works(self):
+        """A plain dict response (non-list) must still work unchanged."""
+        resp = map_current_weather(_OFFICIAL_FULL)
+        assert resp.city == "HYDERABAD"
+        assert resp.temperature == pytest.approx(33.2, abs=0.01)
+
+    def test_O20_empty_and_none_response_still_works(self):
+        """Empty list and None must not raise — return safe defaults."""
+        with patch("app.config.settings.IMD_STATION_ID", "43128"):
+            resp_empty = map_current_weather([])
+            resp_none  = map_current_weather(None)
+        assert resp_empty.city == "Unknown"
+        assert resp_empty.temperature == 0.0
+        assert resp_none.city == "Unknown"
+        assert resp_none.temperature == 0.0
+
 
 # ===========================================================================
 # Group L — Legacy field names backward-compatibility
