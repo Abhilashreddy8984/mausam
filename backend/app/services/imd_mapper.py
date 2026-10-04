@@ -503,10 +503,14 @@ def map_current_weather(
     _hum_legacy   = _safe_float(current_json.get("RH"))
     humidity = _hum_official if _hum_official is not None else _hum_legacy
 
-    # Wind speed: official "Wind Speed", fallback "Wind_Speed"
-    _ws_official = _safe_float(current_json.get("Wind Speed"))
-    _ws_legacy   = _safe_float(current_json.get("Wind_Speed"))
-    wind_speed = _ws_official if _ws_official is not None else _ws_legacy
+    # Wind speed: official "Wind Speed KMPH", fallback "Wind Speed" then "Wind_Speed"
+    _ws_official = _safe_float(current_json.get("Wind Speed KMPH"))
+    _ws_legacy1  = _safe_float(current_json.get("Wind Speed"))
+    _ws_legacy2  = _safe_float(current_json.get("Wind_Speed"))
+    wind_speed = (
+        _ws_official if _ws_official is not None
+        else (_ws_legacy1 if _ws_legacy1 is not None else _ws_legacy2)
+    )
 
     # Wind direction: official field is a numeric code ("Wind Direction"),
     # legacy field is a compass string ("Wind_Dir").
@@ -539,10 +543,14 @@ def map_current_weather(
     else:
         cloud_cover = nebulosity_raw
 
-    # Pressure: official "M.S.L.P", fallback "Pressure"
-    _pres_official = _safe_float(current_json.get("M.S.L.P"))
-    _pres_legacy   = _safe_float(current_json.get("Pressure"))
-    pressure = _pres_official if _pres_official is not None else _pres_legacy
+    # Pressure: official "Mean Sea Level Pressure", fallback "M.S.L.P" then "Pressure"
+    _pres_official = _safe_float(current_json.get("Mean Sea Level Pressure"))
+    _pres_legacy1  = _safe_float(current_json.get("M.S.L.P"))
+    _pres_legacy2  = _safe_float(current_json.get("Pressure"))
+    pressure = (
+        _pres_official if _pres_official is not None
+        else (_pres_legacy1 if _pres_legacy1 is not None else _pres_legacy2)
+    )
 
     # Visibility — NOT in official current_wx spec; may exist in extended
     visibility = _safe_float(current_json.get("Visibility"))
@@ -550,8 +558,10 @@ def map_current_weather(
     # UV index — NOT in official current_wx spec
     uv_index = _safe_int(current_json.get("UV_Index"))
 
-    # Feels like — NOT in official current_wx spec
-    feels_like = _safe_float(current_json.get("Feels_Like"))
+    # Feels like — official "Feel Like", fallback "Feels_Like"
+    _fl_official = _safe_float(current_json.get("Feel Like"))
+    _fl_legacy   = _safe_float(current_json.get("Feels_Like"))
+    feels_like = _fl_official if _fl_official is not None else _fl_legacy
 
     # Weather code: same key in both official and legacy
     weather_code = _safe_str(current_json.get("Weather Code") or current_json.get("Weather_Code"))
@@ -559,9 +569,13 @@ def map_current_weather(
     # Condition description from weather code
     condition = _weather_code_to_desc(weather_code) or _safe_str(current_json.get("Weather_Desc")) or "Unknown"
 
-    # Observation time: combine Date + Time (official) or use legacy "Obs_Time"
+    # Observation time: combine Date + Time (official), or use legacy "Obs_Time"
+    # "Time" is the official current_wx key; "Time of Observation" is a
+    # legacy fallback used by older fixtures.
     obs_date = _safe_str(current_json.get("Date of Observation"))
-    obs_time_utc = _safe_str(current_json.get("Time of Observation"))
+    obs_time_utc = _safe_str(
+        current_json.get("Time") or current_json.get("Time of Observation")
+    )
     if obs_date and obs_time_utc:
         obs_time = f"{obs_date}T{obs_time_utc}Z"
     else:
