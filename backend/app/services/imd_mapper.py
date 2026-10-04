@@ -29,33 +29,27 @@ Design rules
 - This module never makes HTTP requests — that is IMDWeatherProvider's job.
 - This module never reads environment variables.
 
-IMD field names used
----------------------
-Based on publicly documented IMD API schema.
-Exact field names will be verified against live API responses when
-authorized access is obtained.  Only change field names here — nowhere
-else needs to change.
+Official IMD current_wx field names (api.imd.gov.in/public/api_reference.html)
+-------------------------------------------------------------------------------
+Field name in API response → Description
+  "Station Id"             → Numeric station identifier
+  "Station"                → Station name
+  "Date of Observation"    → YYYY-mm-dd
+  "Time of Observation"    → UTC time
+  "M.S.L.P"               → Mean Sea Level Pressure in hPa
+  "Wind Direction"         → Numeric code (see Wind Direction table in docs)
+  "Wind Speed"             → km/h
+  "Temperature"            → °C
+  "Weather Code"           → 01–99 (see Weather Code table in docs)
+  "Nebulosity"             → 0–8 (cloud coverage)
+  "Humidity"               → %
+  "Last 24 hrs Rainfall"   → mm
 
-Current weather (current_wx_api.php)
-  Station_Name, District, State, Lat, Lon
-  Temp, Feels_Like, RH, Wind_Speed, Wind_Dir
-  Rainfall, Cloud_Cover, Pressure, Visibility
-  UV_Index, Weather_Desc, Weather_Code, Obs_Time
+Note: The official current_wx response does NOT include Feels_Like,
+Visibility, UV_Index, or district/state fields.  Those are absent from
+the spec and are mapped to None when missing.
 
-7-day forecast (cityweather_loc.php)
-  City, State, Lat, Lon
-  Forecast[].Date, Max_Temp, Min_Temp, Rainfall, Rain_Prob
-  Forecast[].Weather_Desc, Weather_Code
-
-District warnings (warnings_district_api.php)
-  District, State
-  Warnings[].Warning_Type, Severity, Title, Description
-  Warnings[].Valid_From, Valid_Until, Source
-
-District nowcast (nowcast_district_api.php)
-  District, State
-  Nowcast[].Phenomenon, Severity, Description
-  Nowcast[].Issued_Time, Valid_Until
+Wind direction code → compass string mapping is included below.
 """
 
 import logging
@@ -70,6 +64,43 @@ from app.models.weather import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Wind direction code → compass string
+# Source: official IMD API wind direction table
+# ---------------------------------------------------------------------------
+_WIND_DIR_MAP: dict[int, str] = {
+    0:   "Calm",
+    20:  "NNE",
+    50:  "NE",
+    70:  "ENE",
+    90:  "E",
+    110: "ESE",
+    140: "SE",
+    160: "SSE",
+    180: "S",
+    200: "SSW",
+    230: "SW",
+    250: "WSW",
+    270: "W",
+    290: "WNW",
+    320: "NW",
+    340: "NNW",
+    360: "N",
+}
+
+
+def _wind_dir_to_compass(code: Any) -> str | None:
+    """
+    Convert an IMD wind direction code to a compass abbreviation.
+    Returns None if the code is missing or not recognised.
+    """
+    val = _safe_int(code)
+    if val is None:
+        return None
+    # Find the nearest entry in the table
+    closest = min(_WIND_DIR_MAP.keys(), key=lambda k: abs(k - val))
+    return _WIND_DIR_MAP[closest]
 
 
 # ---------------------------------------------------------------------------
@@ -322,49 +353,139 @@ def map_current_weather(
 
     Parameters
     ----------
-    current_json   : Parsed JSON from current_wx_api.php.
-    forecast_json  : Parsed JSON from cityweather_loc.php (optional).
-    warnings_json  : Parsed JSON from warnings_district_api.php (optional).
-    nowcast_json   : Parsed JSON from nowcast_district_api.php (optional).
+    current_json   : Parsed JSON from current_wx endpoint.
+    forecast_json  : Parsed JSON from cityforecastloc endpoint (optional).
+    warnings_json  : Parsed JSON from districtwarning endpoint (optional).
+    nowcast_json   : Parsed JSON from districtnowcast endpoint (optional).
 
     Returns
     -------
     WeatherResponse populated with all available fields.
     Missing fields are None / empty list — never raises.
+
+    Field name strategy
+    -------------------
+    We try the official current_wx field names first (from the IMD API
+    reference), then fall back to the older invented names so that
+    existing test fixtures continue to work.
+
+    Official names  → fallback names
+    "Station"       → "Station_Name"
+    "Temperature"   → "Temp"
+    "Humidity"      → "RH"
+    "Wind Speed"    → "Wind_Speed"
+    "Wind Direction"→ "Wind_Dir"   (official is a numeric code; converted)
+    "Last 24 hrs Rainfall" → "Rainfall"
+    "M.S.L.P"      → "Pressure"
+    "Weather Code"  → "Weather_Code"  (same key in both)
+    "Date of Observation" + "Time of Observation" → "Obs_Time"
+    "Nebulosity"    → "Cloud_Cover"
+
+    Fields NOT in the official current_wx spec (no official fallback):
+      Feels_Like, Visibility, UV_Index, District, State, Lat, Lon
+    These remain supported if present in the response (some stations
+    may return extended fields), but are not required.
     """
     # ── Parse current weather fields ──────────────────────────
-    city        = _safe_str(current_json.get("Station_Name")) or "Unknown"
-    district    = _safe_str(current_json.get("District"))
-    state       = _safe_str(current_json.get("State"))
-    lat         = _safe_float(current_json.get("Lat"))
-    lon         = _safe_float(current_json.get("Lon"))
+    # Try official field names first, fall back to legacy names.
 
-    temperature  = _safe_float(current_json.get("Temp"))
-    feels_like   = _safe_float(current_json.get("Feels_Like"))
-    humidity     = _safe_float(current_json.get("RH"))
-    wind_speed   = _safe_float(current_json.get("Wind_Speed"))
-    wind_dir     = _safe_str(current_json.get("Wind_Dir"))
-    rainfall_mm  = _safe_float(current_json.get("Rainfall"))
-    cloud_cover  = _safe_float(current_json.get("Cloud_Cover"))
-    pressure     = _safe_float(current_json.get("Pressure"))
-    visibility   = _safe_float(current_json.get("Visibility"))
-    uv_index     = _safe_int(current_json.get("UV_Index"))
-    condition    = _safe_str(current_json.get("Weather_Desc")) or "Unknown"
-    weather_code = _safe_str(current_json.get("Weather_Code"))
-    obs_time     = _safe_str(current_json.get("Obs_Time"))
+    # Station name: official "Station", fallback "Station_Name"
+    city = (
+        _safe_str(current_json.get("Station"))
+        or _safe_str(current_json.get("Station_Name"))
+        or "Unknown"
+    )
 
-    # Guard: temperature and humidity are required for a valid response.
-    # Log a warning if they are missing (malformed response).
+    # Not in official spec — may be present in extended responses
+    district = _safe_str(current_json.get("District"))
+    state    = _safe_str(current_json.get("State"))
+    lat      = _safe_float(current_json.get("Lat") or current_json.get("Latitude"))
+    lon      = _safe_float(current_json.get("Lon") or current_json.get("Longitude"))
+
+    # Temperature: official "Temperature", fallback "Temp"
+    _temp_official = _safe_float(current_json.get("Temperature"))
+    _temp_legacy   = _safe_float(current_json.get("Temp"))
+    temperature = _temp_official if _temp_official is not None else _temp_legacy
+
+    # Humidity: official "Humidity", fallback "RH"
+    _hum_official = _safe_float(current_json.get("Humidity"))
+    _hum_legacy   = _safe_float(current_json.get("RH"))
+    humidity = _hum_official if _hum_official is not None else _hum_legacy
+
+    # Wind speed: official "Wind Speed", fallback "Wind_Speed"
+    _ws_official = _safe_float(current_json.get("Wind Speed"))
+    _ws_legacy   = _safe_float(current_json.get("Wind_Speed"))
+    wind_speed = _ws_official if _ws_official is not None else _ws_legacy
+
+    # Wind direction: official field is a numeric code ("Wind Direction"),
+    # legacy field is a compass string ("Wind_Dir").
+    raw_wind_dir = current_json.get("Wind Direction") or current_json.get("Wind_Dir")
+    if raw_wind_dir is not None:
+        # Try to parse as numeric code first (official), fall back to string
+        code_val = _safe_int(raw_wind_dir)
+        if code_val is not None:
+            wind_dir = _wind_dir_to_compass(code_val)
+        else:
+            wind_dir = _safe_str(raw_wind_dir)
+    else:
+        wind_dir = None
+
+    # Rainfall: official "Last 24 hrs Rainfall", fallback "Rainfall"
+    # IMPORTANT: use explicit None check, not `or`, because 0.0 is falsy
+    _rain_official = _safe_float(current_json.get("Last 24 hrs Rainfall"))
+    _rain_legacy   = _safe_float(current_json.get("Rainfall"))
+    rainfall_mm = _rain_official if _rain_official is not None else _rain_legacy
+
+    # Nebulosity / cloud cover: official "Nebulosity" (0-8 scale),
+    # fallback "Cloud_Cover"
+    _neb_official = _safe_float(current_json.get("Nebulosity"))
+    _neb_legacy   = _safe_float(current_json.get("Cloud_Cover"))
+    nebulosity_raw = _neb_official if _neb_official is not None else _neb_legacy
+    # Convert Nebulosity (0–8) to percentage (0–100) if it looks like a
+    # 0–8 scale value; otherwise keep as-is (legacy may already be %).
+    if nebulosity_raw is not None and nebulosity_raw <= 8:
+        cloud_cover = round(nebulosity_raw / 8.0 * 100, 1)
+    else:
+        cloud_cover = nebulosity_raw
+
+    # Pressure: official "M.S.L.P", fallback "Pressure"
+    _pres_official = _safe_float(current_json.get("M.S.L.P"))
+    _pres_legacy   = _safe_float(current_json.get("Pressure"))
+    pressure = _pres_official if _pres_official is not None else _pres_legacy
+
+    # Visibility — NOT in official current_wx spec; may exist in extended
+    visibility = _safe_float(current_json.get("Visibility"))
+
+    # UV index — NOT in official current_wx spec
+    uv_index = _safe_int(current_json.get("UV_Index"))
+
+    # Feels like — NOT in official current_wx spec
+    feels_like = _safe_float(current_json.get("Feels_Like"))
+
+    # Weather code: same key in both official and legacy
+    weather_code = _safe_str(current_json.get("Weather Code") or current_json.get("Weather_Code"))
+
+    # Condition description from weather code
+    condition = _weather_code_to_desc(weather_code) or _safe_str(current_json.get("Weather_Desc")) or "Unknown"
+
+    # Observation time: combine Date + Time (official) or use legacy "Obs_Time"
+    obs_date = _safe_str(current_json.get("Date of Observation"))
+    obs_time_utc = _safe_str(current_json.get("Time of Observation"))
+    if obs_date and obs_time_utc:
+        obs_time = f"{obs_date}T{obs_time_utc}Z"
+    else:
+        obs_time = _safe_str(current_json.get("Obs_Time"))
+
+    # Guard: log warnings for missing critical fields
     if temperature is None:
         logger.warning(
-            "IMD current weather response missing 'Temp' field for city '%s'. "
+            "IMD current weather response missing temperature for station '%s'. "
             "Ranking engine will skip temperature context adjustments.",
             city,
         )
     if humidity is None:
         logger.warning(
-            "IMD current weather response missing 'RH' field for city '%s'.",
-            city,
+            "IMD current weather response missing humidity for station '%s'.", city,
         )
 
     # ── Build WeatherCards ────────────────────────────────────
@@ -376,22 +497,17 @@ def map_current_weather(
         wind_direction=wind_dir,
         rainfall_mm=rainfall_mm,
         uv_index=uv_index,
-        aqi=None,   # IMD current weather does not include AQI directly
+        aqi=None,   # IMD current_wx does not include AQI
         visibility_km=visibility,
         condition=condition,
     )
 
-    # ── Map forecast ──────────────────────────────────────────
+    # ── Map supplementary data ────────────────────────────────
     forecast = _map_forecast(forecast_json) if forecast_json else []
-
-    # ── Map warnings ──────────────────────────────────────────
     warnings = _map_warnings(warnings_json) if warnings_json else []
-
-    # ── Map nowcast ───────────────────────────────────────────
-    nowcast = _map_nowcast(nowcast_json) if nowcast_json else []
+    nowcast  = _map_nowcast(nowcast_json)   if nowcast_json  else []
 
     return WeatherResponse(
-        # ── Existing fields (Flutter reads these) ──────────────
         city=city,
         temperature=temperature if temperature is not None else 0.0,
         humidity=humidity if humidity is not None else 0.0,
@@ -399,7 +515,6 @@ def map_current_weather(
         condition=condition,
         cards=cards,
         source="IMD",
-        # ── New rich fields ────────────────────────────────────
         district=district,
         state=state,
         latitude=lat,
@@ -418,6 +533,33 @@ def map_current_weather(
         warnings=warnings,
         nowcast=nowcast,
     )
+
+
+def _weather_code_to_desc(code: str | None) -> str | None:
+    """
+    Convert an IMD weather code (01–99) to a short human-readable description.
+    Based on the official Weather Code Description table in the IMD API docs.
+    Returns None if the code is unknown.
+    """
+    if code is None:
+        return None
+    _MAP = {
+        "01": "Clouds dissolving", "02": "Sky unchanged", "03": "Clouds forming",
+        "05": "Haze", "10": "Mist",
+        "17": "Thunderstorm (no precipitation)", "20": "Drizzle or snow grains",
+        "21": "Rain (not shower)", "22": "Snow", "25": "Rain showers",
+        "28": "Fog or ice fog", "29": "Thunderstorm",
+        "41": "Fog patches", "45": "Fog (sky invisible)",
+        "50": "Drizzle slight intermittent", "51": "Drizzle slight continuous",
+        "52": "Drizzle moderate intermittent", "53": "Drizzle moderate continuous",
+        "60": "Rain slight intermittent", "61": "Rain slight continuous",
+        "62": "Rain moderate intermittent", "63": "Rain moderate continuous",
+        "64": "Rain heavy intermittent", "65": "Rain heavy continuous",
+        "80": "Rain shower (slight)", "81": "Rain shower (moderate/heavy)",
+        "95": "Thunderstorm with rain/snow",
+        "99": "Thunderstorm heavy with hail",
+    }
+    return _MAP.get(str(code).strip().zfill(2))
 
 
 def _map_forecast(forecast_json: dict) -> list[ForecastDay]:

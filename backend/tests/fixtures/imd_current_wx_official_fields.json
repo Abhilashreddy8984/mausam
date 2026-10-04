@@ -1,0 +1,17 @@
+{
+  "_comment": "MOCK DATA — uses OFFICIAL IMD current_wx field names as documented at",
+  "_comment2": "https://api.imd.gov.in/public/api_reference.html (Section 3: Current Weather API)",
+  "_comment3": "This fixture validates that the mapper correctly reads official field names.",
+  "Station Id": "42867",
+  "Station": "HYDERABAD",
+  "Date of Observation": "2026-09-27",
+  "Time of Observation": "04:00",
+  "M.S.L.P": "997.8",
+  "Wind Direction": "230",
+  "Wind Speed": "18",
+  "Temperature": "33.2",
+  "Weather Code": "03",
+  "Nebulosity": "4",
+  "Humidity": "65",
+  "Last 24 hrs Rainfall": "0.0"
+}

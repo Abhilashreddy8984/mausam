@@ -1,0 +1,15 @@
+{
+  "_comment": "MOCK DATA — official IMD field names, rain scenario (Weather Code 63 = continuous moderate rain)",
+  "Station Id": "42867",
+  "Station": "HYDERABAD",
+  "Date of Observation": "2026-09-28",
+  "Time of Observation": "08:00",
+  "M.S.L.P": "994.0",
+  "Wind Direction": "180",
+  "Wind Speed": "25",
+  "Temperature": "27.0",
+  "Weather Code": "63",
+  "Nebulosity": "8",
+  "Humidity": "92",
+  "Last 24 hrs Rainfall": "18.5"
+}
