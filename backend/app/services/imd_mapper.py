@@ -275,11 +275,16 @@ def _build_cards(
             severity=_severity_from_wind(wind_speed),
         ))
 
-    # Rain alert card — shown whenever rainfall > 0 OR condition suggests rain
+    # Rain alert card — shown whenever rainfall > 0 OR condition suggests rain.
+    # When rainfall is 0 or absent, show the condition string if it is
+    # meaningful.  Avoid displaying "Unknown" as a rain-alert value — if
+    # neither rainfall nor a usable condition is available, use a neutral
+    # message that does not claim "No rainfall" when data is simply missing.
+    _condition_usable = condition and condition.lower() not in ("unknown", "")
     rain_value = (
-        f"{rainfall_mm:.1f} mm" if rainfall_mm and rainfall_mm > 0
-        else (condition or "No rainfall reported")
-    )
+    f"{rainfall_mm:.1f} mm" if rainfall_mm and rainfall_mm > 0
+    else (condition if _condition_usable else "No data")
+)
     cards.append(WeatherCard(
         type="rain_alert",
         title="Rain Alert",
@@ -300,7 +305,7 @@ def _build_cards(
     if aqi is not None:
         cards.append(WeatherCard(
             type="air_quality",
-            title="Air Quality Index",
+            title="Air Quality (est.)",
             value=str(aqi),
             unit="AQI",
             severity=_severity_from_aqi(aqi),
@@ -427,21 +432,29 @@ def map_current_weather(
     forecast_json: dict | None = None,
     warnings_json: dict | None = None,
     nowcast_json: dict | None = None,
+    uv_index: int | None = None,
+    aqi: int | None = None,
+    visibility_km: float | None = None,
+    open_meteo_forecast: list | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> WeatherResponse:
     """
     Build a WeatherResponse from one or more raw IMD API responses.
 
     Parameters
     ----------
-    current_json   : Parsed JSON from current_wx endpoint.
-                     May be a dict (single station) or a list of station
-                     dicts (official array response). A list is normalized
-                     to the station whose "Station Id" matches the configured
-                     IMD_STATION_ID, with safe fallback to an empty response
-                     if the configured station is not found.
-    forecast_json  : Parsed JSON from cityforecastloc endpoint (optional).
-    warnings_json  : Parsed JSON from districtwarning endpoint (optional).
-    nowcast_json   : Parsed JSON from districtnowcast endpoint (optional).
+    current_json        : Parsed JSON from current_wx endpoint.
+    forecast_json       : Parsed JSON from cityforecastloc endpoint (optional).
+    warnings_json       : Parsed JSON from districtwarning endpoint (optional).
+    nowcast_json        : Parsed JSON from districtnowcast endpoint (optional).
+    uv_index            : UV Index integer from Open-Meteo (optional).
+    aqi                 : European AQI integer from Open-Meteo (optional,
+                          model-based estimate — NOT official CPCB AQI).
+    visibility_km       : Visibility in km from Open-Meteo (optional, metres
+                          already converted by provider before passing here).
+    open_meteo_forecast : List of daily forecast dicts from Open-Meteo
+                          (optional).  Used when IMD forecast is unavailable.
 
     Returns
     -------
@@ -492,6 +505,11 @@ def map_current_weather(
     state    = _safe_str(current_json.get("State"))
     lat      = _safe_float(current_json.get("Lat") or current_json.get("Latitude"))
     lon      = _safe_float(current_json.get("Lon") or current_json.get("Longitude"))
+    if (lat is None or lon is None) and isinstance(forecast_json, dict):
+        if lat is None:
+            lat = _safe_float(forecast_json.get("Lat") or forecast_json.get("Latitude"))
+        if lon is None:
+            lon = _safe_float(forecast_json.get("Lon") or forecast_json.get("Longitude"))
 
     # Temperature: official "Temperature", fallback "Temp"
     _temp_official = _safe_float(current_json.get("Temperature"))
@@ -553,10 +571,17 @@ def map_current_weather(
     )
 
     # Visibility — NOT in official current_wx spec; may exist in extended
-    visibility = _safe_float(current_json.get("Visibility"))
+    # responses.  When a visibility_km value is passed from Open-Meteo it
+    # takes precedence over whatever the IMD station dict may contain.
+    _imd_visibility = _safe_float(current_json.get("Visibility"))
+    effective_visibility = (
+        visibility_km if visibility_km is not None else _imd_visibility
+    )
 
-    # UV index — NOT in official current_wx spec
-    uv_index = _safe_int(current_json.get("UV_Index"))
+    # UV index — NOT in official current_wx spec; any value here is supplementary
+    # The parameter `uv_index` (from Open-Meteo) takes precedence if supplied.
+    # This line reads from the IMD response as a last-resort fallback only.
+    _imd_uv_index = _safe_int(current_json.get("UV_Index"))
 
     # Feels like — official "Feel Like", fallback "Feels_Like"
     _fl_official = _safe_float(current_json.get("Feel Like"))
@@ -594,6 +619,10 @@ def map_current_weather(
         )
 
     # ── Build WeatherCards ────────────────────────────────────
+    # UV index: prefer supplementary source (Open-Meteo); fall back to any
+    # value in the IMD response (rare in current_wx, but supported).
+    effective_uv = uv_index if uv_index is not None else _imd_uv_index
+
     cards = _build_cards(
         temperature=temperature,
         feels_like=feels_like,
@@ -601,14 +630,18 @@ def map_current_weather(
         wind_speed=wind_speed,
         wind_direction=wind_dir,
         rainfall_mm=rainfall_mm,
-        uv_index=uv_index,
-        aqi=None,   # IMD current_wx does not include AQI
-        visibility_km=visibility,
+        uv_index=effective_uv,
+        aqi=aqi,
+        visibility_km=effective_visibility,
         condition=condition,
     )
 
     # ── Map supplementary data ────────────────────────────────
+    # Forecast: IMD path first; fall back to Open-Meteo daily forecast.
     forecast = _map_forecast(forecast_json) if forecast_json else []
+
+    if not forecast and open_meteo_forecast:
+        forecast = _map_open_meteo_forecast(open_meteo_forecast)
     warnings = _map_warnings(warnings_json) if warnings_json else []
     nowcast  = _map_nowcast(nowcast_json)   if nowcast_json  else []
 
@@ -622,16 +655,16 @@ def map_current_weather(
         source="IMD",
         district=district,
         state=state,
-        latitude=lat,
-        longitude=lon,
+        latitude=latitude if latitude is not None else lat,
+        longitude=longitude if longitude is not None else lon,
         feels_like=feels_like,
         pressure_hpa=pressure,
         wind_direction=wind_dir,
         rainfall_mm=rainfall_mm,
         cloud_cover_pct=cloud_cover,
-        uv_index=uv_index,
-        aqi=None,
-        visibility_km=visibility,
+        uv_index=effective_uv,
+        aqi=aqi,
+        visibility_km=effective_visibility,
         observation_time=obs_time,
         weather_code=weather_code,
         forecast=forecast,
@@ -667,8 +700,10 @@ def _weather_code_to_desc(code: str | None) -> str | None:
     return _MAP.get(str(code).strip().zfill(2))
 
 
-def _map_forecast(forecast_json: dict) -> list[ForecastDay]:
+def _map_forecast(forecast_json: Any) -> list[ForecastDay]:
     """Parse the forecast section of cityweather_loc.php response."""
+    if not isinstance(forecast_json, dict):
+        return []
     raw_list = forecast_json.get("Forecast", [])
     if not isinstance(raw_list, list):
         logger.warning("IMD forecast 'Forecast' key is not a list.")
@@ -688,6 +723,57 @@ def _map_forecast(forecast_json: dict) -> list[ForecastDay]:
             weather_code=_safe_str(entry.get("Weather_Code")),
         ))
     return days
+
+
+def _map_open_meteo_forecast(days: list) -> list[ForecastDay]:
+    """
+    Map the list of daily forecast dicts from _fetch_open_meteo_forecast()
+    into ForecastDay objects.
+
+    Open-Meteo WMO weather codes are mapped to a short description using a
+    subset of the standard WMO code table so the forecast condition is
+    human-readable.
+
+    Parameters
+    ----------
+    days : List of dicts with keys:
+        date      — "YYYY-MM-DD"
+        max_temp  — float °C or None
+        min_temp  — float °C or None
+        rain_prob — 0–100 int/float or None  (precipitation_probability_max)
+        precip    — float mm or None         (precipitation_sum)
+        wmo_code  — int or None              (WMO weather interpretation code)
+
+    Returns an empty list on any parse failure — never raises.
+    """
+    _WMO_DESC: dict[int, str] = {
+        0:  "Clear sky",
+        1:  "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+        45: "Foggy", 48: "Rime fog",
+        51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+        61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain",
+        71: "Slight snow", 73: "Moderate snow", 75: "Heavy snow",
+        80: "Rain showers", 81: "Moderate rain showers", 82: "Violent rain showers",
+        85: "Snow showers", 86: "Heavy snow showers",
+        95: "Thunderstorm", 96: "Thunderstorm with hail", 99: "Thunderstorm with heavy hail",
+    }
+
+    result: list[ForecastDay] = []
+    for entry in (days or []):
+        if not isinstance(entry, dict):
+            continue
+        wmo = _safe_int(entry.get("wmo_code"))
+        cond = _WMO_DESC.get(wmo, None) if wmo is not None else None
+        result.append(ForecastDay(
+            date=_safe_str(entry.get("date")),
+            max_temp_c=_safe_float(entry.get("max_temp")),
+            min_temp_c=_safe_float(entry.get("min_temp")),
+            rain_probability=_safe_float(entry.get("rain_prob")),
+            rainfall_mm=_safe_float(entry.get("precip")),
+            condition=cond,
+            weather_code=str(wmo) if wmo is not None else None,
+        ))
+    return result
 
 
 def _map_warnings(warnings_json: dict) -> list[WeatherWarning]:

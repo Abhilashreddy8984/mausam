@@ -67,10 +67,150 @@ from app.config.settings import (
 )
 from app.models.weather import WeatherResponse
 from app.services.imd_auth import IMDAuthError, get_access_token, invalidate_token
-from app.services.imd_mapper import map_current_weather
+from app.services.imd_mapper import _safe_float, map_current_weather
 from app.services.weather_provider import LocationQuery, WeatherProvider
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Verified static coordinates for known IMD station IDs.
+#
+# These are the geographic coordinates of the physical weather stations.
+# They are used as fallback when the Flutter client does not supply GPS
+# coordinates, so that Open-Meteo UV/AQI/visibility/forecast can still
+# be fetched.
+#
+# IMPORTANT: Only add a station to this table when you have verified its
+# location from an official source (IMD station list, coordinates returned
+# by the /current_wx endpoint, or the IMD API mapping endpoint).
+# Do NOT assume coordinates for an unlisted station ID.
+# ---------------------------------------------------------------------------
+_STATION_COORDS: dict[str, tuple[float, float]] = {
+    # Hyderabad (Begumpet synoptic station)
+    # Verified from IMD station metadata and Open-Meteo agree with this.
+    "43128": (17.4500, 78.4700),
+    "42867": (17.4500, 78.4700),   # Hyderabad alternate station code
+}
+
+# Fallback coordinates for known cities if station ID is not in table
+_CITY_COORDS: dict[str, tuple[float, float]] = {
+    "hyderabad": (17.4500, 78.4700),
+    "secunderabad": (17.4500, 78.4700),
+}
+
+
+# ---------------------------------------------------------------------------
+# Open-Meteo hourly value extractor
+# ---------------------------------------------------------------------------
+
+def _extract_current_hour_value(
+    response_json: dict,
+    key: str,
+    label: str,
+) -> float | None:
+    """
+    Extract the value for the current local hour from an Open-Meteo
+    hourly response.
+
+    Open-Meteo returns data shaped like:
+
+        {
+          "timezone": "Asia/Kolkata",          ← IANA name — preferred
+          "utc_offset_seconds": 19800,         ← fallback only
+          "hourly": {
+            "time":   ["2026-10-04T00:00", "2026-10-04T01:00", ...],
+            "<key>":  [3.2, 4.1, ...]
+          }
+        }
+
+    Timezone resolution (in order):
+      1. IANA name from the "timezone" field via zoneinfo.ZoneInfo —
+         correctly handles DST transitions.
+      2. Fixed UTC offset from "utc_offset_seconds" if the IANA name
+         is absent or ZoneInfo cannot find it.
+      3. UTC if neither is available.
+
+    Hour matching:
+      The current wall-clock time in the resolved timezone is truncated
+      to the hour and formatted as "YYYY-MM-DDTHH:00".  An exact match
+      in the "time" array is required.
+
+    Stale-value policy:
+      We do NOT fall back to a previous hour.  If the current-hour slot
+      is absent or its value is None, return None.  Serving an hour-old
+      value without the caller's knowledge is less safe than returning
+      None and letting the caller decide.
+
+    Returns None on any parse failure — never raises.
+    """
+    from datetime import datetime, timezone, timedelta
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        hourly = response_json.get("hourly") or {}
+        times  = hourly.get("time", [])
+        values = hourly.get(key, [])
+
+        if not times or not values or len(times) != len(values):
+            logger.debug("Open-Meteo %s: empty or mismatched arrays.", label)
+            return None
+
+        # ── Resolve timezone ─────────────────────────────────────────
+        local_tz = None
+        iana_name = response_json.get("timezone")   # e.g. "Asia/Kolkata"
+        if iana_name:
+            try:
+                local_tz = ZoneInfo(iana_name)
+            except (ZoneInfoNotFoundError, KeyError):
+                logger.debug(
+                    "Open-Meteo %s: unrecognised IANA timezone '%s', "
+                    "falling back to utc_offset_seconds.",
+                    label, iana_name,
+                )
+
+        if local_tz is None:
+            # Fall back to the fixed UTC offset supplied in the response
+            utc_offset_seconds = response_json.get("utc_offset_seconds")
+            if isinstance(utc_offset_seconds, (int, float)):
+                local_tz = timezone(timedelta(seconds=int(utc_offset_seconds)))
+            else:
+                logger.debug(
+                    "Open-Meteo %s: no usable timezone, defaulting to UTC.",
+                    label,
+                )
+                local_tz = timezone.utc
+
+        # ── Determine current-hour string ────────────────────────────
+        now_local  = datetime.now(tz=timezone.utc).astimezone(local_tz)
+        target_str = now_local.strftime("%Y-%m-%dT%H:00")
+
+        # ── Exact match required — no stale fallback ─────────────────
+        if target_str not in times:
+            logger.debug(
+                "Open-Meteo %s: current-hour slot '%s' not in response "
+                "(response covers %s..%s). Returning None — "
+                "will not serve a stale past value.",
+                label, target_str,
+                times[0] if times else "?",
+                times[-1] if times else "?",
+            )
+            return None
+
+        idx = times.index(target_str)
+        val = values[idx]
+        if val is None:
+            logger.debug(
+                "Open-Meteo %s: value is None for slot '%s'.",
+                label, target_str,
+            )
+            return None
+
+        return float(val)
+
+    except Exception as exc:          # noqa: BLE001
+        logger.debug("Open-Meteo %s hour extraction failed: %s", label, exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -175,17 +315,293 @@ class IMDWeatherProvider(WeatherProvider):
                 auth_header=_s.IMD_AUTH_HEADER,
             )
 
+        # ── 3e. Open-Meteo supplementary UV + AQI + visibility + forecast ──
+        # Attempted when coordinates are available.  Coordinates come from:
+        #   1. GPS fix passed by the Flutter client (location.latitude/.longitude)
+        #   2. Static lookup for the configured IMD_STATION_ID as fallback.
+        #
+        # The static table maps verified IMD station IDs to their geographic
+        # coordinates.  Coordinates are never assumed from an unknown station —
+        # only explicitly listed stations are resolved.
+        #
+        # A failure here is never fatal — IMD weather is returned regardless.
+        supplementary_uv_index: int | None = None
+        supplementary_aqi: int | None = None
+        supplementary_visibility_km: float | None = None
+        supplementary_forecast: list | None = None
+
+        # Prefer caller-supplied GPS; fall back to static station coords.
+        eff_lat = location.latitude
+        eff_lon = location.longitude
+
+        if eff_lat is None or eff_lon is None:
+            # 1. Check if current_json returned coordinates
+            if isinstance(current_json, dict):
+                eff_lat = _safe_float(current_json.get("Lat") or current_json.get("Latitude"))
+                eff_lon = _safe_float(current_json.get("Lon") or current_json.get("Longitude"))
+            elif isinstance(current_json, list):
+                station_key = str(_s.IMD_STATION_ID).strip() if _s.IMD_STATION_ID else None
+                for item in current_json:
+                    if isinstance(item, dict):
+                        item_id = str(item.get("Station Id", "")).strip()
+                        if not station_key or item_id == station_key:
+                            eff_lat = _safe_float(item.get("Lat") or item.get("Latitude"))
+                            eff_lon = _safe_float(item.get("Lon") or item.get("Longitude"))
+                            if eff_lat is not None and eff_lon is not None:
+                                break
+
+        if eff_lat is None or eff_lon is None:
+            station_id = str(_s.IMD_STATION_ID).strip() if _s.IMD_STATION_ID else None
+            if station_id and station_id in _STATION_COORDS:
+                eff_lat, eff_lon = _STATION_COORDS[station_id]
+                logger.info(
+                    "Open-Meteo: no GPS fix — using static coords for "
+                    "station_id='%s' (lat=%.4f lon=%.4f)",
+                    station_id, eff_lat, eff_lon,
+                )
+            elif location.city and location.city.strip().lower() in _CITY_COORDS:
+                city_key = location.city.strip().lower()
+                eff_lat, eff_lon = _CITY_COORDS[city_key]
+                logger.info(
+                    "Open-Meteo: no GPS fix — using static coords for "
+                    "city='%s' (lat=%.4f lon=%.4f)",
+                    city_key, eff_lat, eff_lon,
+                )
+            else:
+                logger.debug(
+                    "Open-Meteo: no GPS and no static coords for "
+                    "station_id='%s' — UV/AQI/visibility/forecast skipped.",
+                    station_id,
+                )
+
+        if eff_lat is not None and eff_lon is not None:
+            uv_aqi = self._fetch_open_meteo_uv_aqi(
+                lat=eff_lat,
+                lon=eff_lon,
+            )
+            if uv_aqi is not None:
+                supplementary_uv_index      = uv_aqi.get("uv_index")
+                supplementary_aqi           = uv_aqi.get("aqi")
+                supplementary_visibility_km = uv_aqi.get("visibility_km")
+
+            supplementary_forecast = self._fetch_open_meteo_forecast(
+                lat=eff_lat,
+                lon=eff_lon,
+            )
+
         # ── 4. Map raw JSON → WeatherResponse ──────────────────────────────
         return map_current_weather(
             current_json=current_json,
             forecast_json=forecast_json,
             warnings_json=warnings_json,
             nowcast_json=nowcast_json,
+            uv_index=supplementary_uv_index,
+            aqi=supplementary_aqi,
+            visibility_km=supplementary_visibility_km,
+            open_meteo_forecast=supplementary_forecast,
+            latitude=eff_lat,
+            longitude=eff_lon,
         )
 
     # ---------------------------------------------------------------------- #
     # Private HTTP helpers                                                     #
     # ---------------------------------------------------------------------- #
+
+    def _fetch_open_meteo_uv_aqi(
+        self,
+        lat: float,
+        lon: float,
+    ) -> dict | None:
+        """
+        Retrieve UV Index and European AQI from the Open-Meteo public APIs.
+
+        Open-Meteo is a free, no-credentials-required service.
+        Reference:
+          UV:  https://api.open-meteo.com/v1/forecast
+          AQI: https://air-quality-api.open-meteo.com/v1/air-quality
+
+        Both responses contain an hourly time-series.  We select the value
+        whose ISO-8601 timestamp matches the current local hour at the
+        requested coordinates (using the timezone returned by Open-Meteo).
+
+        Returns
+        -------
+        dict | None
+            {"uv_index": int | None, "aqi": int | None}
+            None on any failure — never raises.
+
+        Notes
+        -----
+        - A failure of this method must never prevent the main IMD weather
+          response from being returned.
+        - The AQI is a model-based estimate (European AQI scale), NOT
+          official CPCB AQI.
+        - No caching is applied; the caller is responsible for rate management.
+        """
+        from datetime import datetime, timezone
+
+        result: dict = {"uv_index": None, "aqi": None, "visibility_km": None}
+
+        # ── UV Index + Visibility ─────────────────────────────────────────
+        # Both fetched in one call to the forecast endpoint to avoid an
+        # extra HTTP request.  Visibility is returned in metres; we convert
+        # to km here so the mapper receives the correct unit.
+        try:
+            uv_resp = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude":         str(lat),
+                    "longitude":        str(lon),
+                    "hourly":           "uv_index,visibility",
+                    "forecast_days":    "1",
+                    "timezone":         "auto",
+                },
+                headers={"Accept": "application/json"},
+                timeout=HTTP_TIMEOUT_SECONDS,
+            )
+            if uv_resp.ok:
+                uv_data = uv_resp.json()
+                uv_val = _extract_current_hour_value(
+                    uv_data, key="uv_index", label="UV"
+                )
+                if uv_val is not None:
+                    result["uv_index"] = int(round(uv_val))
+                vis_val = _extract_current_hour_value(
+                    uv_data, key="visibility", label="visibility"
+                )
+                if vis_val is not None:
+                    # Open-Meteo returns visibility in metres; convert to km
+                    result["visibility_km"] = round(vis_val / 1000.0, 2)
+            else:
+                logger.warning(
+                    "Open-Meteo UV endpoint returned HTTP %s — UV+visibility skipped.",
+                    uv_resp.status_code,
+                )
+        except requests.exceptions.Timeout:
+            logger.warning("Open-Meteo UV request timed out — UV+visibility skipped.")
+        except requests.exceptions.RequestException as exc:
+            logger.warning("Open-Meteo UV request error: %s — UV+visibility skipped.",
+                           type(exc).__name__)
+        except (ValueError, KeyError, TypeError) as exc:
+            logger.warning("Open-Meteo UV parse error: %s — UV+visibility skipped.", exc)
+
+        # ── European AQI ──────────────────────────────────────────────────
+        try:
+            aqi_resp = requests.get(
+                "https://air-quality-api.open-meteo.com/v1/air-quality",
+                params={
+                    "latitude":      str(lat),
+                    "longitude":     str(lon),
+                    "hourly":        "european_aqi",
+                    "forecast_days": "1",
+                    "timezone":      "auto",
+                },
+                headers={"Accept": "application/json"},
+                timeout=HTTP_TIMEOUT_SECONDS,
+            )
+            if aqi_resp.ok:
+                aqi_data = aqi_resp.json()
+                aqi_val = _extract_current_hour_value(
+                    aqi_data, key="european_aqi", label="AQI"
+                )
+                if aqi_val is not None:
+                    result["aqi"] = int(round(aqi_val))
+            else:
+                logger.warning(
+                    "Open-Meteo AQI endpoint returned HTTP %s — AQI skipped.",
+                    aqi_resp.status_code,
+                )
+        except requests.exceptions.Timeout:
+            logger.warning("Open-Meteo AQI request timed out — AQI skipped.")
+        except requests.exceptions.RequestException as exc:
+            logger.warning("Open-Meteo AQI request error: %s — AQI skipped.",
+                           type(exc).__name__)
+        except (ValueError, KeyError, TypeError) as exc:
+            logger.warning("Open-Meteo AQI parse error: %s — AQI skipped.", exc)
+
+        return result
+
+    def _fetch_open_meteo_forecast(
+        self,
+        lat: float,
+        lon: float,
+    ) -> list | None:
+        """
+        Retrieve a 7-day daily forecast from Open-Meteo.
+
+        Returns a list of dicts shaped for _map_open_meteo_forecast() in the
+        mapper, or None on any failure.  Never raises — forecast failure
+        must not prevent the IMD weather response from being returned.
+
+        Fields requested:
+          temperature_2m_max         — daily maximum temperature (°C)
+          temperature_2m_min         — daily minimum temperature (°C)
+          precipitation_probability_max — 0–100 chance-of-rain percentage
+          precipitation_sum          — total rainfall in mm
+          weather_code               — WMO weather interpretation code
+          time                       — date string per day
+        """
+        try:
+            resp = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude":     str(lat),
+                    "longitude":    str(lon),
+                    "daily": ",".join([
+                        "temperature_2m_max",
+                        "temperature_2m_min",
+                        "precipitation_probability_max",
+                        "precipitation_sum",
+                        "weather_code",
+                    ]),
+                    "forecast_days": "7",
+                    "timezone":      "auto",
+                },
+                headers={"Accept": "application/json"},
+                timeout=HTTP_TIMEOUT_SECONDS,
+            )
+            if not resp.ok:
+                logger.warning(
+                    "Open-Meteo daily forecast returned HTTP %s — forecast skipped.",
+                    resp.status_code,
+                )
+                return None
+
+            data = resp.json()
+            daily = data.get("daily") or {}
+            times  = daily.get("time", [])
+            tmax   = daily.get("temperature_2m_max", [])
+            tmin   = daily.get("temperature_2m_min", [])
+            prob   = daily.get("precipitation_probability_max", [])
+            precip = daily.get("precipitation_sum", [])
+            codes  = daily.get("weather_code") or daily.get("weathercode") or []
+
+            if not times:
+                logger.debug("Open-Meteo forecast: empty time array.")
+                return None
+
+            # Zip available arrays; shorter arrays are padded with None
+            n = len(times)
+            days = []
+            for i in range(n):
+                days.append({
+                    "date":     times[i] if i < len(times)  else None,
+                    "max_temp": tmax[i]  if i < len(tmax)   else None,
+                    "min_temp": tmin[i]  if i < len(tmin)   else None,
+                    "rain_prob":prob[i]  if i < len(prob)   else None,
+                    "precip":   precip[i]if i < len(precip) else None,
+                    "wmo_code": codes[i] if i < len(codes)  else None,
+                })
+            return days
+
+        except requests.exceptions.Timeout:
+            logger.warning("Open-Meteo forecast request timed out — forecast skipped.")
+        except requests.exceptions.RequestException as exc:
+            logger.warning("Open-Meteo forecast request error: %s — forecast skipped.",
+                           type(exc).__name__)
+        except (ValueError, KeyError, TypeError) as exc:
+            logger.warning("Open-Meteo forecast parse error: %s — forecast skipped.", exc)
+        return None
 
     def _fetch_current(
         self,

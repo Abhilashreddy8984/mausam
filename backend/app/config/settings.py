@@ -71,7 +71,7 @@ class ConfigurationError(Exception):
 # ---------------------------------------------------------------------------
 
 #: Active weather provider.  "demo" works with no credentials.
-WEATHER_PROVIDER: str = os.getenv("WEATHER_PROVIDER", "demo").strip().lower()
+WEATHER_PROVIDER: str = os.getenv("WEATHER_PROVIDER", "IMD").strip().lower()
 
 
 # ---------------------------------------------------------------------------
@@ -130,13 +130,15 @@ HTTP_TIMEOUT_SECONDS: int = int(os.getenv("HTTP_TIMEOUT_SECONDS", "10"))
 
 #: Station ID for current_wx queries (numeric IMD station identifier).
 #: Example for Hyderabad (Begumpet): "42867"
-IMD_STATION_ID: str | None = os.getenv("IMD_STATION_ID") or None
+IMD_STATION_ID: str | None = (
+    os.getenv("IMD_STATION_ID", "").strip() or None
+)
 
 #: Station code for cityforecast queries.
 #: May differ from IMD_STATION_ID.
 #: Example for Hyderabad: "42182"
 IMD_FORECAST_STATION_CODE: str | None = (
-    os.getenv("IMD_FORECAST_STATION_CODE") or None
+    os.getenv("IMD_FORECAST_STATION_CODE", "").strip() or None
 )
 
 #: Numeric district/object ID for districtwarning queries.
