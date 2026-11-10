@@ -28,7 +28,7 @@
 // ============================================================
 
 // ── CHANGE THIS LINE to match your run target ───────────────
-const String _kBaseUrl = 'http://10.29.142.190:8000';
+const String _kBaseUrl = 'http://13.127.182.208:8000';
 // ────────────────────────────────────────────────────────────
 
 /// The FastAPI backend base URL.

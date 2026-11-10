@@ -44,9 +44,15 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.config.settings import ConfigurationError
 from app.models.ranking_context import RankingContext
+from app.models.travel_advisory import (
+    LocationSearchResult,
+    TravelAdvisoryResponse,
+)
 from app.models.weather import WeatherResponse
+from app.services.geocoding_service import GeocodingService
 from app.services.provider_factory import get_provider
 from app.services.ranking_service import RankingService, SUPPORTED_PERSONAS
+from app.services.travel_advisory_service import TravelAdvisoryService
 from app.services.weather_provider import LocationQuery
 
 router = APIRouter()
@@ -231,3 +237,63 @@ def get_homepage(
         warnings=weather.warnings,
         nowcast=weather.nowcast,
     )
+
+
+# --------------------------------------------------------------------------- #
+# GET /locations/search                                                       #
+# --------------------------------------------------------------------------- #
+@router.get("/locations/search", response_model=list[LocationSearchResult])
+def search_locations(
+    query: str = Query(..., min_length=2, description="Place or city name to search"),
+    limit: int = Query(default=5, ge=1, le=10, description="Max results to return"),
+):
+    """
+    Searches and geocodes place names into coordinates for travel destinations.
+    """
+    return GeocodingService.search(query=query, limit=limit)
+
+
+# --------------------------------------------------------------------------- #
+# GET /travel-advisory                                                        #
+# --------------------------------------------------------------------------- #
+@router.get("/travel-advisory", response_model=TravelAdvisoryResponse)
+def get_travel_advisory(
+    destination: str = Query(..., description="Destination city or location name"),
+    origin: str | None = Query(default=None, description="Optional origin city or location name"),
+    dest_lat: float | None = Query(default=None, description="Optional pre-resolved destination latitude"),
+    dest_lon: float | None = Query(default=None, description="Optional pre-resolved destination longitude"),
+    origin_lat: float | None = Query(default=None, description="Optional pre-resolved origin latitude"),
+    origin_lon: float | None = Query(default=None, description="Optional pre-resolved origin longitude"),
+):
+    """
+    Returns real-time destination weather, 7-day forecast, travel risk evaluation,
+    and practical safety precautions for the requested location or route.
+    Never fabricates unavailable transit or infrastructure data.
+    """
+    try:
+        advisory = TravelAdvisoryService.get_advisory(
+            destination=destination,
+            origin=origin,
+            dest_lat=dest_lat,
+            dest_lon=dest_lon,
+            origin_lat=origin_lat,
+            origin_lon=origin_lon,
+        )
+        return advisory
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "LocationNotFound",
+                "message": str(exc),
+            },
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "WeatherProviderUnavailable",
+                "message": f"Could not fetch weather data for {destination}: {exc}",
+            },
+        ) from exc
+

@@ -1,453 +1,350 @@
-// ============================================================
-// screens/alerts_screen.dart
-// Demo weather alerts with severity, title, description, time
-// and location. All data is static demo content.
-//
-// TODO: Replace DemoAlerts with real IMD API alerts.
-// ============================================================
-
 import 'package:flutter/material.dart';
 
-// ─────────────────────────────────────────────────────────────
-// Alert severity levels
-// ─────────────────────────────────────────────────────────────
-enum AlertSeverity { red, orange, yellow, green }
+import '../models/weather_data.dart';
+import '../theme/mausam_theme.dart';
+import '../widgets/mausam_state_views.dart';
 
-extension AlertSeverityStyle on AlertSeverity {
-  String get label {
-    switch (this) {
-      case AlertSeverity.red:    return 'Red Alert';
-      case AlertSeverity.orange: return 'Orange Alert';
-      case AlertSeverity.yellow: return 'Yellow Alert';
-      case AlertSeverity.green:  return 'No Warning';
-    }
-  }
+export '../models/weather_data.dart' show AlertSeverity;
 
-  Color get color {
-    switch (this) {
-      case AlertSeverity.red:    return const Color(0xFFD32F2F);
-      case AlertSeverity.orange: return const Color(0xFFE64A19);
-      case AlertSeverity.yellow: return const Color(0xFFF9A825);
-      case AlertSeverity.green:  return const Color(0xFF388E3C);
-    }
-  }
-
-  IconData get icon {
-    switch (this) {
-      case AlertSeverity.red:    return Icons.crisis_alert;
-      case AlertSeverity.orange: return Icons.warning_rounded;
-      case AlertSeverity.yellow: return Icons.warning_amber_rounded;
-      case AlertSeverity.green:  return Icons.check_circle_outline;
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// DemoAlert model
-// ─────────────────────────────────────────────────────────────
-class DemoAlert {
-  final AlertSeverity severity;
+class WeatherAlertItem {
   final String title;
   final String description;
-  final String time;
-  final String location;
-  final String issuedBy;
+  final AlertSeverity severity;
+  final String validPeriod;
+  final IconData icon;
 
-  const DemoAlert({
-    required this.severity,
+  const WeatherAlertItem({
     required this.title,
     required this.description,
-    required this.time,
-    required this.location,
-    required this.issuedBy,
+    required this.severity,
+    required this.validPeriod,
+    required this.icon,
   });
 }
 
-// ─────────────────────────────────────────────────────────────
-// Demo alert data
-// ─────────────────────────────────────────────────────────────
-const List<DemoAlert> kDemoAlerts = [
-  DemoAlert(
-    severity: AlertSeverity.yellow,
-    title: 'Thunderstorm Warning',
-    description:
-        'Thunderstorm with lightning and gusty winds (30–40 km/h) '
-        'expected over Hyderabad, Rangareddy and Medchal districts between '
-        '3:00 PM and 8:00 PM. Isolated heavy rainfall (≥ 64 mm in 3 h) '
-        'possible. Residents are advised to avoid open areas, tall trees, '
-        'and metal structures.',
-    time: 'Today · 3:00 PM – 8:00 PM',
-    location: 'Hyderabad, Rangareddy, Medchal',
-    issuedBy: 'IMD Hyderabad',
-  ),
-  DemoAlert(
-    severity: AlertSeverity.yellow,
-    title: 'Urban Flooding Advisory',
-    description:
-        'Waterlogging is likely at low-lying underpasses and roads in '
-        'Hyderabad city following predicted heavy rainfall. Mehdipatnam, '
-        'Falaknuma, and Tolichowki areas are particularly vulnerable. '
-        'GHMC pumping crews are on standby.',
-    time: 'Today · 4:00 PM onwards',
-    location: 'GHMC Limits, Hyderabad',
-    issuedBy: 'GHMC Disaster Management',
-  ),
-  DemoAlert(
-    severity: AlertSeverity.orange,
-    title: 'Heat Wave — Telangana Interior',
-    description:
-        'Heat wave conditions are very likely in isolated pockets of '
-        'Nalgonda, Suryapet, and Khammam districts with maximum '
-        'temperatures expected to touch 42–43 °C. Vulnerable populations '
-        '(elderly, children, outdoor workers) should avoid outdoor '
-        'activity between 11 AM and 4 PM.',
-    time: 'Tomorrow · 11:00 AM – 5:00 PM',
-    location: 'Nalgonda, Suryapet, Khammam',
-    issuedBy: 'IMD Hyderabad',
-  ),
-  DemoAlert(
-    severity: AlertSeverity.yellow,
-    title: 'Fishing Advisory — Bay of Bengal',
-    description:
-        'Rough sea conditions (wave height 2.5–3.5 m) are forecast along '
-        'the north Andhra Pradesh coast and adjoining Bay of Bengal. '
-        'Fishermen are strongly advised not to venture into the sea. '
-        'Those already at sea are advised to return to coast.',
-    time: 'Next 48 hours',
-    location: 'North AP Coast & BoB',
-    issuedBy: 'IMD — Fisheries Division',
-  ),
-  DemoAlert(
-    severity: AlertSeverity.green,
-    title: 'Normal Conditions — North Telangana',
-    description:
-        'Weather conditions are normal in Nizamabad, Karimnagar and '
-        'Adilabad districts. No significant weather event expected in '
-        'the next 24 hours. Light to moderate rainfall may occur.',
-    time: 'Next 24 hours',
-    location: 'North Telangana Districts',
-    issuedBy: 'IMD Hyderabad',
-  ),
-];
+class AlertsScreen extends StatefulWidget {
+  final WeatherData? weather;
 
-// ─────────────────────────────────────────────────────────────
-// AlertsScreen widget
-// ─────────────────────────────────────────────────────────────
-class AlertsScreen extends StatelessWidget {
-  const AlertsScreen({super.key});
+  const AlertsScreen({super.key, this.weather});
+
+  @override
+  State<AlertsScreen> createState() => _AlertsScreenState();
+}
+
+class _AlertsScreenState extends State<AlertsScreen> {
+  AlertSeverity? _filterSeverity; // null = all
+  late List<WeatherAlertItem> _alerts;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAlerts();
+  }
+
+  @override
+  void didUpdateWidget(covariant AlertsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.weather != widget.weather) {
+      _initAlerts();
+    }
+  }
+
+  void _initAlerts() {
+    if (widget.weather == null) {
+      _alerts = const [];
+      return;
+    }
+
+    final alert = widget.weather!.primaryAlert;
+    if (!alert.isActive) {
+      _alerts = const [];
+      return;
+    }
+
+    final validPeriod = alert.validPeriod ??
+        (widget.weather!.timestamp != null
+            ? 'Observed at ${widget.weather!.timestamp!.hour.toString().padLeft(2, '0')}:${widget.weather!.timestamp!.minute.toString().padLeft(2, '0')} IST'
+            : 'Current Weather Advisory');
+
+    IconData alertIcon;
+    switch (alert.hazardType) {
+      case WeatherHazardType.thunderstorm:
+        alertIcon = Icons.bolt_rounded;
+        break;
+      case WeatherHazardType.heavyRain:
+        alertIcon = Icons.water_drop_rounded;
+        break;
+      case WeatherHazardType.hazeFog:
+        alertIcon = Icons.visibility_outlined;
+        break;
+      case WeatherHazardType.strongWind:
+        alertIcon = Icons.air_rounded;
+        break;
+      case WeatherHazardType.heatwave:
+        alertIcon = Icons.wb_sunny_rounded;
+        break;
+      case WeatherHazardType.coldWave:
+        alertIcon = Icons.ac_unit_rounded;
+        break;
+      case WeatherHazardType.poorAqi:
+        alertIcon = Icons.masks_rounded;
+        break;
+      case WeatherHazardType.normal:
+        alertIcon = Icons.shield_outlined;
+        break;
+    }
+
+    _alerts = [
+      WeatherAlertItem(
+        title: alert.title,
+        description: '${alert.headline}\n\nKey Safety Actions:\n• ${alert.precautions.take(2).join('\n• ')}',
+        severity: alert.severity,
+        validPeriod: validPeriod,
+        icon: alertIcon,
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Count active (non-green) alerts
-    final activeCount =
-        kDemoAlerts.where((a) => a.severity != AlertSeverity.green).length;
+    final filtered = _filterSeverity == null
+        ? _alerts
+        : _alerts.where((a) => a.severity == _filterSeverity).toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          // ── App bar ─────────────────────────────────────────
-          SliverAppBar(
-            pinned: true,
-            backgroundColor: Colors.white,
-            surfaceTintColor: Colors.transparent,
-            elevation: 0,
-            title: Row(
-              children: [
-                Icon(
-                  Icons.notifications_outlined,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Alerts',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
-                ),
-                const SizedBox(width: 8),
-                if (activeCount > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFD32F2F),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '$activeCount',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Divider(height: 1, color: Colors.grey[200]),
-            ),
-          ),
-
-          // ── Summary strip ───────────────────────────────────
-          SliverToBoxAdapter(
-            child: _AlertSummaryStrip(activeCount: activeCount),
-          ),
-
-          // ── Alert cards ────────────────────────────────────
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) => Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: _AlertCard(alert: kDemoAlerts[index]),
-                ),
-                childCount: kDemoAlerts.length,
-              ),
-            ),
-          ),
-
-          // ── Source note ────────────────────────────────────
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 24),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.info_outlined,
-                      size: 12, color: Colors.grey[400]),
-                  const SizedBox(width: 5),
-                  Text(
-                    'Demo alerts · IMD API integration coming soon',
-                    style:
-                        TextStyle(fontSize: 11, color: Colors.grey[400]),
-                  ),
-                ],
-              ),
-            ),
+      backgroundColor: MausamTheme.background,
+      appBar: AppBar(
+        title: const Text('Weather Alerts'),
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_list_rounded),
+            tooltip: 'Filter Alerts',
+            onPressed: _showFilterMenu,
           ),
         ],
       ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// _AlertSummaryStrip — severity legend
-// ─────────────────────────────────────────────────────────────
-class _AlertSummaryStrip extends StatelessWidget {
-  final int activeCount;
-  const _AlertSummaryStrip({required this.activeCount});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF9A825).withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.warning_amber_rounded,
-              size: 16, color: Color(0xFFF9A825)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '$activeCount active alert${activeCount == 1 ? '' : 's'} for '
-              'Hyderabad region · Updated just now',
-              style: TextStyle(
-                fontSize: 12.5,
-                color: Colors.grey[700],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// _AlertCard — expandable card for one alert
-// ─────────────────────────────────────────────────────────────
-class _AlertCard extends StatefulWidget {
-  final DemoAlert alert;
-  const _AlertCard({required this.alert});
-
-  @override
-  State<_AlertCard> createState() => _AlertCardState();
-}
-
-class _AlertCardState extends State<_AlertCard> {
-  bool _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final sev = widget.alert.severity;
-    final color = sev.color;
-
-    return GestureDetector(
-      onTap: () => setState(() => _expanded = !_expanded),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: color.withValues(alpha: _expanded ? 0.5 : 0.2),
-            width: _expanded ? 1.5 : 1.0,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Header ──
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
+      body: filtered.isEmpty
+          ? MausamNoAlertsView(
+              onBackHome: () {
+                setState(() => _filterSeverity = null);
+                if (Navigator.canPop(context)) Navigator.pop(context);
+              },
+            )
+          : SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Severity icon badge
+                  // Alert cards
+                  ...filtered.map(_buildAlertCard),
+
+                  const SizedBox(height: 16),
+
+                  // Information disclaimer footer
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(MausamTheme.radiusCard),
+                      border: Border.all(color: const Color(0xFFDBEAFE)),
                     ),
-                    child: Icon(sev.icon, color: color, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
+                    child: const Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Severity chip + title
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 7, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: color.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                sev.label,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: color,
-                                  letterSpacing: 0.3,
-                                ),
-                              ),
+                        Icon(Icons.info_outline_rounded, color: Color(0xFF3B82F6), size: 18),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'These alerts are based on official weather bulletins and may be subject to change.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF1E40AF),
+                              height: 1.4,
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.alert.title,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.grey[850],
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        // Time + location
-                        Row(
-                          children: [
-                            Icon(Icons.access_time,
-                                size: 11, color: Colors.grey[400]),
-                            const SizedBox(width: 3),
-                            Expanded(
-                              child: Text(
-                                widget.alert.time,
-                                style: TextStyle(
-                                    fontSize: 11, color: Colors.grey[500]),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Icon(Icons.location_on,
-                                size: 11, color: Colors.grey[400]),
-                            const SizedBox(width: 3),
-                            Expanded(
-                              child: Text(
-                                widget.alert.location,
-                                style: TextStyle(
-                                    fontSize: 11, color: Colors.grey[500]),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
                         ),
                       ],
                     ),
                   ),
-                  Icon(
-                    _expanded
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
-                    color: Colors.grey[400],
-                    size: 20,
-                  ),
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
+    );
+  }
 
-            // ── Expanded body ──
-            if (_expanded) ...[
-              Divider(height: 1, color: Colors.grey[100]),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.alert.description,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[700],
-                        height: 1.6,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Icon(Icons.account_balance_outlined,
-                            size: 12, color: Colors.grey[400]),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Issued by: ${widget.alert.issuedBy}',
-                          style: TextStyle(
-                              fontSize: 11, color: Colors.grey[500]),
-                        ),
-                      ],
-                    ),
-                  ],
+  Widget _buildAlertCard(WeatherAlertItem alert) {
+    Color cardBg;
+    Color iconBg;
+    Color iconColor;
+    Color pillBg;
+    Color pillText;
+    String tagLabel;
+
+    switch (alert.severity) {
+      case AlertSeverity.extreme:
+      case AlertSeverity.high:
+        cardBg = const Color(0xFFFEF2F2);
+        iconBg = const Color(0xFFFEE2E2);
+        iconColor = const Color(0xFFEF4444);
+        pillBg = const Color(0xFFEF4444);
+        pillText = Colors.white;
+        tagLabel = alert.severity == AlertSeverity.extreme ? 'Extreme' : 'High';
+        break;
+      case AlertSeverity.medium:
+        cardBg = const Color(0xFFFFFBEB);
+        iconBg = const Color(0xFFFEF3C7);
+        iconColor = const Color(0xFFF59E0B);
+        pillBg = const Color(0xFFFDE68A);
+        pillText = const Color(0xFF92400E);
+        tagLabel = 'Medium';
+        break;
+      case AlertSeverity.low:
+        cardBg = const Color(0xFFFEFCE8);
+        iconBg = const Color(0xFFFEF9C3);
+        iconColor = const Color(0xFFEAB308);
+        pillBg = const Color(0xFFFEF08A);
+        pillText = const Color(0xFF854D0E);
+        tagLabel = 'Low';
+        break;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(MausamTheme.radiusCard),
+        border: Border.all(color: iconColor.withValues(alpha: 0.2)),
+        boxShadow: MausamTheme.cardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(alert.icon, color: iconColor, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  alert.title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: MausamTheme.textPrimary,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: pillBg,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  tagLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: pillText,
+                  ),
                 ),
               ),
             ],
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            alert.description,
+            style: const TextStyle(
+              fontSize: 13,
+              color: MausamTheme.textSecondary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            alert.validPeriod,
+            style: const TextStyle(
+              fontSize: 11,
+              color: MausamTheme.textMuted,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
+    );
+  }
+
+  void _showFilterMenu() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Filter by Severity',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  title: const Text('All Alerts'),
+                  trailing: _filterSeverity == null ? const Icon(Icons.check, color: MausamTheme.primaryBlue) : null,
+                  onTap: () {
+                    setState(() => _filterSeverity = null);
+                    Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  title: const Text('High Severity'),
+                  trailing: _filterSeverity == AlertSeverity.high ? const Icon(Icons.check, color: MausamTheme.primaryBlue) : null,
+                  onTap: () {
+                    setState(() => _filterSeverity = AlertSeverity.high);
+                    Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  title: const Text('Medium Severity'),
+                  trailing: _filterSeverity == AlertSeverity.medium ? const Icon(Icons.check, color: MausamTheme.primaryBlue) : null,
+                  onTap: () {
+                    setState(() => _filterSeverity = AlertSeverity.medium);
+                    Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  title: const Text('Low Severity'),
+                  trailing: _filterSeverity == AlertSeverity.low ? const Icon(Icons.check, color: MausamTheme.primaryBlue) : null,
+                  onTap: () {
+                    setState(() => _filterSeverity = AlertSeverity.low);
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

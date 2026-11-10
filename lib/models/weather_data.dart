@@ -20,6 +20,12 @@
 //   Nothing in this file or in any UI file needs to change.
 // ============================================================
 
+import '../services/advisory_service.dart';
+import 'weather_alert.dart';
+import 'weather_code_system.dart';
+export 'weather_alert.dart';
+export 'weather_code_system.dart';
+
 class WeatherData {
   // ── Location ──────────────────────────────────────────────
   final String city;
@@ -37,7 +43,7 @@ class WeatherData {
   final String windDirection; // e.g. "SW"
 
   // ── Precipitation ─────────────────────────────────────────
-  final double rainfallProbability; // percent (0-100)
+  final double? rainfallProbability; // percent (0-100), nullable
   final double? rainfallAmountMm; // nullable: may be absent in forecast
   final String? rainfallWindow; // e.g. "4 PM – 7 PM"
 
@@ -57,9 +63,23 @@ class WeatherData {
   final String? sunset; // e.g. "6:24 PM"
 
   // ── Metadata ──────────────────────────────────────────────
+  /// Source identifier of the weather data (e.g. "IMD", "demo", "Open-Meteo").
+  final String? source;
+
   /// When this snapshot was fetched/created.
   /// Null when using demo data (no real timestamp available).
   final DateTime? timestamp;
+
+  // ── Weather code metadata ──────────────────────────────────
+  /// Provider-specific weather condition code (e.g., IMD "5" for Haze).
+  final String? weatherCode;
+
+  /// Code authority system (IMD observation or WMO forecast).
+  final WeatherCodeSystem? weatherCodeSystem;
+
+  // ── Alerts & Advisories ───────────────────────────────────
+  /// Active weather alerts or advisories for this snapshot.
+  final List<WeatherAlert> alerts;
 
   const WeatherData({
     required this.city,
@@ -71,7 +91,7 @@ class WeatherData {
     required this.weatherConditionDetail,
     required this.windSpeedKmh,
     required this.windDirection,
-    required this.rainfallProbability,
+    this.rainfallProbability,
     this.rainfallAmountMm,
     this.rainfallWindow,
     this.aqi,
@@ -81,8 +101,17 @@ class WeatherData {
     required this.visibilityKm,
     this.sunrise,
     this.sunset,
+    this.source,
     this.timestamp,
+    this.weatherCode,
+    this.weatherCodeSystem,
+    this.alerts = const [],
   });
+
+  /// The active primary alert. If no explicit alert was passed in,
+  /// resolved dynamically via [AdvisoryService.resolveAlert].
+  WeatherAlert get primaryAlert =>
+      alerts.isNotEmpty ? alerts.first : AdvisoryService.resolveAlert(this);
 
   // ── Convenience display helpers ────────────────────────────
 
@@ -125,7 +154,11 @@ class WeatherData {
     double? visibilityKm,
     String? sunrise,
     String? sunset,
+    String? source,
     DateTime? timestamp,
+    String? weatherCode,
+    WeatherCodeSystem? weatherCodeSystem,
+    List<WeatherAlert>? alerts,
   }) {
     return WeatherData(
       city: city ?? this.city,
@@ -149,7 +182,11 @@ class WeatherData {
       visibilityKm: visibilityKm ?? this.visibilityKm,
       sunrise: sunrise ?? this.sunrise,
       sunset: sunset ?? this.sunset,
+      source: source ?? this.source,
       timestamp: timestamp ?? this.timestamp,
+      weatherCode: weatherCode ?? this.weatherCode,
+      weatherCodeSystem: weatherCodeSystem ?? this.weatherCodeSystem,
+      alerts: alerts ?? this.alerts,
     );
   }
 }

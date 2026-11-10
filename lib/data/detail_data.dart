@@ -162,21 +162,18 @@ const Map<WeatherCardType, WeatherDetailContent> kDetailContent = {
     title: 'Weather Alert',
     icon: Icons.warning_amber_rounded,
     accentColor: Color(0xFFF57F17),
-    heroValue: '⚠',
-    heroUnit: 'Yellow Alert',
+    heroValue: 'Advisory',
+    heroUnit: 'Active',
     summary:
-        'IMD has issued a Yellow Alert for Hyderabad district. '
-        'Thunderstorm with lightning and gusty winds (30–40 km/h) '
-        'is expected between 3 PM and 8 PM.',
+        'Official meteorological warnings and application-calculated weather risk advisories '
+        'based on current observations.',
     rows: [
-      DetailRow(label: 'Issued by', value: 'IMD Hyderabad', icon: Icons.account_balance_outlined),
-      DetailRow(label: 'Severity', value: 'Yellow (Watch)', icon: Icons.warning_outlined),
-      DetailRow(label: 'Valid period', value: '3:00 PM – 8:00 PM today', icon: Icons.access_time),
-      DetailRow(label: 'Affected districts', value: 'Hyderabad, Rangareddy, Medchal', icon: Icons.location_on_outlined),
-      DetailRow(label: 'Hazards', value: 'Lightning, gusty winds, heavy rain', icon: Icons.bolt),
+      DetailRow(label: 'Advisory Type', value: 'Weather Risk Assessment', icon: Icons.shield_outlined),
+      DetailRow(label: 'Severity Level', value: 'Dynamic (Condition-specific)', icon: Icons.warning_outlined),
+      DetailRow(label: 'Validity', value: 'Current observation period', icon: Icons.access_time),
+      DetailRow(label: 'Hazard Detection', value: 'Verified against local sensor data', icon: Icons.verified_outlined),
     ],
-    tip: 'Avoid open areas, tall trees, and metal structures between 3–8 PM. '
-        'Keep emergency contacts handy.',
+    tip: 'Review condition-specific safety precautions before planning outdoor travel or activities.',
   ),
 
   WeatherCardType.farmAdvisory: WeatherDetailContent(
@@ -206,21 +203,18 @@ const Map<WeatherCardType, WeatherDetailContent> kDetailContent = {
     title: 'Travel Advisory',
     icon: Icons.directions_car,
     accentColor: Color(0xFF5E35B1),
-    heroValue: 'Moderate',
-    heroUnit: 'disruption',
+    heroValue: 'Live',
+    heroUnit: 'advisory',
     summary:
-        'Fog patches on NH-44 near Jadcherla are reducing visibility. '
-        'Waterlogging at Mehdipatnam underpass may affect TSRTC buses '
-        'on routes 5C, 10K, and 216.',
+        'Select a destination city or route to view real-time weather risks, highway conditions, and travel precautions.',
     rows: [
-      DetailRow(label: 'Road condition', value: 'Caution — fog on NH-44', icon: Icons.visibility_off_outlined),
-      DetailRow(label: 'Affected routes', value: 'TSRTC 5C, 10K, 216', icon: Icons.directions_bus_outlined),
-      DetailRow(label: 'Waterlogging', value: 'Mehdipatnam underpass', icon: Icons.water),
-      DetailRow(label: 'Metro status', value: 'Normal operations', icon: Icons.train_outlined),
-      DetailRow(label: 'Airport', value: 'No delays reported', icon: Icons.flight_outlined),
+      DetailRow(label: 'Destination', value: 'Select location', icon: Icons.place_outlined),
+      DetailRow(label: 'Road condition', value: 'Weather-based evaluation', icon: Icons.visibility_outlined),
+      DetailRow(label: 'Public transport', value: 'Data unavailable', icon: Icons.directions_bus_outlined),
+      DetailRow(label: 'Metro status', value: 'Data unavailable', icon: Icons.train_outlined),
+      DetailRow(label: 'Airport status', value: 'Data unavailable', icon: Icons.flight_outlined),
     ],
-    tip: 'Allow extra 15–20 min travel time. Prefer metro for city routes '
-        'during evening storm window.',
+    tip: 'Always check destination weather and visibility before undertaking highway journeys.',
   ),
 
   WeatherCardType.visibility: WeatherDetailContent(

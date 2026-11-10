@@ -1,17 +1,8 @@
-// ============================================================
-// screens/persona_screen.dart
-//
-// Receives AppPersonaNotifier directly (no InheritedWidget lookup).
-// When "Apply Profile" is tapped:
-//   1. personaNotifier.value = _selected  (instant update)
-//   2. Navigator.pop()                    (return to Home)
-// HomeScreen's ValueListenableBuilder sees the change immediately.
-// ============================================================
-
 import 'package:flutter/material.dart';
 
 import '../models/persona.dart';
 import '../state/app_state.dart';
+import '../theme/mausam_theme.dart';
 
 class PersonaScreen extends StatefulWidget {
   final AppPersonaNotifier personaNotifier;
@@ -23,415 +14,248 @@ class PersonaScreen extends StatefulWidget {
 }
 
 class _PersonaScreenState extends State<PersonaScreen> {
-  // Local selection state — tracks what the user has highlighted
-  // in this screen before committing with "Apply".
   late Persona _selected;
 
   @override
   void initState() {
     super.initState();
-    // Seed from the current live value — no InheritedWidget needed.
     _selected = widget.personaNotifier.value;
   }
 
   void _apply() {
-    // Write the new persona into the shared notifier.
-    // ValueListenableBuilder in HomeScreen reacts immediately.
     widget.personaNotifier.value = _selected;
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final personas = [
+      Persona.farmer,
+      Persona.traveller,
+      Persona.student,
+      Persona.outdoorWorker,
+      Persona.healthFitness,
+      Persona.commuter,
+      Persona.seniorCitizen,
+      Persona.eventPlanner,
+    ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: MausamTheme.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 18),
-          onPressed: () => Navigator.pop(context),
-          tooltip: 'Back',
-        ),
-        title: const Text(
-          'Weather Profile',
-          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Divider(height: 1, color: Colors.grey[200]),
+        title: const Text('Choose Your Persona'),
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Get personalized weather insights\nfor your needs.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: MausamTheme.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    ...personas.map((p) => _buildPersonaTile(p)),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
+
+            // Bottom "Continue" Button matching Screen 8
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: Colors.grey[200]!)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _apply,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E3A8A),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text(
+                    'Continue',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
-      body: Column(
-        children: [
-          _buildBanner(context),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+    );
+  }
+
+  Widget _buildPersonaTile(Persona persona) {
+    final isSelected = _selected == persona;
+
+    Color iconBg;
+    Color iconColor;
+
+    switch (persona) {
+      case Persona.farmer:
+        iconBg = const Color(0xFFF3E8FF);
+        iconColor = const Color(0xFF9333EA);
+        break;
+      case Persona.traveller:
+        iconBg = const Color(0xFFEFF6FF);
+        iconColor = const Color(0xFF2563EB);
+        break;
+      case Persona.student:
+        iconBg = const Color(0xFFFFF7ED);
+        iconColor = const Color(0xFFEA580C);
+        break;
+      case Persona.outdoorWorker:
+        iconBg = const Color(0xFFCCFBF1);
+        iconColor = const Color(0xFF0D9488);
+        break;
+      case Persona.healthFitness:
+        iconBg = const Color(0xFFF3E8FF);
+        iconColor = const Color(0xFF7E22CE);
+        break;
+      case Persona.commuter:
+        iconBg = const Color(0xFFE0F2FE);
+        iconColor = const Color(0xFF0284C7);
+        break;
+      case Persona.seniorCitizen:
+        iconBg = const Color(0xFFFEF3C7);
+        iconColor = const Color(0xFFD97706);
+        break;
+      case Persona.eventPlanner:
+        iconBg = const Color(0xFFFCE7F3);
+        iconColor = const Color(0xFFDB2777);
+        break;
+    }
+
+    String description;
+    switch (persona) {
+      case Persona.farmer:
+        description = 'Better crop decisions, field advisory & more';
+        break;
+      case Persona.traveller:
+        description = 'Plan safer journeys with weather insights';
+        break;
+      case Persona.student:
+        description = 'Stay prepared for classes & outdoor activities';
+        break;
+      case Persona.outdoorWorker:
+        description = 'Work safely with weather updates';
+        break;
+      case Persona.healthFitness:
+        description = 'Daily weather & lifestyle recommendations';
+        break;
+      default:
+        description = persona.description;
+        break;
+    }
+
+    final title = persona == Persona.healthFitness ? 'General User' : persona.label;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(MausamTheme.radiusCard),
+        border: Border.all(
+          color: isSelected ? const Color(0xFF7C3AED) : MausamTheme.border,
+          width: isSelected ? 1.6 : 1.0,
+        ),
+        boxShadow: isSelected ? MausamTheme.elevatedShadow : MausamTheme.cardShadow,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(MausamTheme.radiusCard),
+          onTap: () => setState(() => _selected = persona),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
               children: [
-                _sectionLabel('Select your profile'),
-                const SizedBox(height: 12),
-
-                // ── 2-column persona grid ──────────────────
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 1.55,
-                  children: Persona.values.map((p) {
-                    return _PersonaCard(
-                      persona: p,
-                      isSelected: _selected == p,
-                      onTap: () => setState(() => _selected = p),
-                    );
-                  }).toList(),
-                ),
-
-                const SizedBox(height: 20),
-                _sectionLabel('What this means'),
-                const SizedBox(height: 10),
-
-                // Animates when _selected changes
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 220),
-                  child: _SelectedPersonaDetail(
-                    key: ValueKey(_selected),
-                    persona: _selected,
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Personalization principle note
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: primary.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: primary.withValues(alpha: 0.15)),
+                    color: iconBg,
+                    shape: BoxShape.circle,
                   ),
-                  child: Row(
+                  child: Icon(persona.icon, color: iconColor, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.info_outline_rounded,
-                        size: 16,
-                        color: primary,
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: MausamTheme.textPrimary,
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '"Personalization changes the priority, not the '
-                          'availability." All weather data is always accessible '
-                          'on the Explore tab — your profile just surfaces the '
-                          'most relevant cards first.',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            color: Colors.grey[600],
-                            height: 1.5,
-                          ),
+                      const SizedBox(height: 3),
+                      Text(
+                        description,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: MausamTheme.textSecondary,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-        ],
-      ),
-
-      // ── Sticky Apply button ──────────────────────────────────
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: FilledButton(
-            onPressed: _apply,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(_selected.icon, size: 18),
-                const SizedBox(width: 8),
-                Text(
-                  'Apply ${_selected.label} Profile',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                const SizedBox(width: 10),
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected ? const Color(0xFF7C3AED) : Colors.grey[400]!,
+                      width: 2,
+                    ),
+                    color: isSelected ? const Color(0xFF7C3AED) : Colors.transparent,
                   ),
+                  child: isSelected
+                      ? const Icon(Icons.check, size: 14, color: Colors.white)
+                      : null,
                 ),
               ],
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildBanner(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Choose your weather profile',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey[800],
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Your profile reorders the weather cards so the most relevant '
-            'information appears first. All data stays available.',
-            style: TextStyle(fontSize: 12.5, color: Colors.grey[500]),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _sectionLabel(String text) => Text(
-    text.toUpperCase(),
-    style: TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.w700,
-      color: Colors.grey[400],
-      letterSpacing: 1.1,
-    ),
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// _PersonaCard — selectable tile
-// ─────────────────────────────────────────────────────────────
-class _PersonaCard extends StatelessWidget {
-  final Persona persona;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _PersonaCard({
-    required this.persona,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final bg = isSelected ? primary.withValues(alpha: 0.07) : Colors.white;
-    final border = isSelected ? primary : Colors.grey[300]!;
-    final labelColor = isSelected ? primary : Colors.grey[800]!;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: border, width: isSelected ? 1.8 : 1.0),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? primary.withValues(alpha: 0.12)
-                    : Colors.grey[100]!,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                persona.icon,
-                size: 22,
-                color: isSelected ? primary : Colors.grey[600],
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    persona.label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: labelColor,
-                    ),
-                  ),
-                  if (isSelected) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      'Selected',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: primary,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (isSelected)
-              Icon(Icons.check_circle_rounded, size: 18, color: primary),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// _SelectedPersonaDetail — description + top priority chips
-// ─────────────────────────────────────────────────────────────
-class _SelectedPersonaDetail extends StatelessWidget {
-  final Persona persona;
-  const _SelectedPersonaDetail({super.key, required this.persona});
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final topTypes = persona.cardPriority.take(4).toList();
-    const typeLabels = <WeatherCardType, String>{
-      WeatherCardType.rain: 'Rainfall',
-      WeatherCardType.temperature: 'Temperature',
-      WeatherCardType.aqi: 'Air Quality',
-      WeatherCardType.uvIndex: 'UV Index',
-      WeatherCardType.wind: 'Wind',
-      WeatherCardType.weatherAlert: 'Weather Alert',
-      WeatherCardType.farmAdvisory: 'Farm Advisory',
-      WeatherCardType.travelAdvisory: 'Travel Advisory',
-      WeatherCardType.visibility: 'Visibility',
-      WeatherCardType.marineTide: 'Marine / Tide',
-      WeatherCardType.humidity: 'Humidity',
-    };
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(persona.icon, color: primary, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                persona.label,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey[800],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            persona.description,
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.grey[600],
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'TOP PRIORITY CARDS',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey[400],
-              letterSpacing: 0.8,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: topTypes.asMap().entries.map((e) {
-              final idx = e.key + 1;
-              final label = typeLabels[e.value] ?? e.value.name;
-              return Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 16,
-                      height: 16,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        '$idx',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: primary,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ],
       ),
     );
   }

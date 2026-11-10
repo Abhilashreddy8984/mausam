@@ -57,7 +57,6 @@ _DEFAULT_KEY = _KEY_DEMO
 # (e.g. requests) are not yet installed in the current environment.
 _REGISTRY: dict[str, type] = {}
 
-
 def _build_registry() -> dict[str, type]:
     """Populate the registry on first use."""
     from app.services.weather_service import DemoWeatherProvider

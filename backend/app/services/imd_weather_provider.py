@@ -373,6 +373,15 @@ class IMDWeatherProvider(WeatherProvider):
                     "station_id='%s' — UV/AQI/visibility/forecast skipped.",
                     station_id,
                 )
+                # Fallback to Hyderabad coordinates if no city provided
+                if not location.city:
+                    fallback_city = "hyderabad"
+                    if fallback_city in _CITY_COORDS:
+                        eff_lat, eff_lon = _CITY_COORDS[fallback_city]
+                        logger.info(
+                            "Open-Meteo: using hard‑coded fallback for city='%s' (lat=%.4f lon=%.4f)",
+                            fallback_city, eff_lat, eff_lon,
+                        )
 
         if eff_lat is not None and eff_lon is not None:
             uv_aqi = self._fetch_open_meteo_uv_aqi(

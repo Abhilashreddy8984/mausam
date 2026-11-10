@@ -278,8 +278,8 @@ class WeatherExperienceAnalyzer {
     final isHeavyRainKeyword =
         _matchesAny(condition, _heavyRainKeywords) ||
         _matchesAny(detail,    _heavyRainKeywords);
-    final isHeavyRainProb =
-        w.rainfallProbability >= _heavyRainProbabilityThreshold;
+    final isHeavyRainProb = w.rainfallProbability != null &&
+        w.rainfallProbability! >= _heavyRainProbabilityThreshold;
     final isHeavyRainAmount =
         w.rainfallAmountMm != null &&
         w.rainfallAmountMm! >= _heavyRainAmountMm;
@@ -315,7 +315,9 @@ class WeatherExperienceAnalyzer {
     final isRainKeyword =
         _matchesAny(condition, _rainKeywords) ||
         _matchesAny(detail,    _rainKeywords);
-    if (w.rainfallProbability >= _rainProbabilityThreshold || isRainKeyword) {
+    if ((w.rainfallProbability != null &&
+            w.rainfallProbability! >= _rainProbabilityThreshold) ||
+        isRainKeyword) {
       return WeatherExperienceState.rain;
     }
 

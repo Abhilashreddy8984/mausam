@@ -74,6 +74,7 @@ class DemoWeatherProvider {
       sunset: '6:24 PM',
 
       // ── Metadata ──────────────────────────────────────────
+      source: 'demo',
       timestamp: null, // null = demo, no real fetch time
     );
   }

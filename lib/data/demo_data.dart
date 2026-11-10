@@ -19,8 +19,11 @@
 
 import 'package:flutter/material.dart';
 
+import '../models/marine_advisory_model.dart';
 import '../models/persona.dart';
 import '../models/weather_data.dart';
+import '../services/advisory_service.dart';
+import '../services/marine_advisory_service.dart';
 
 // ─────────────────────────────────────────────────────────────
 // WeatherCardData — display model for one summary card
@@ -60,7 +63,9 @@ List<WeatherCardData> buildWeatherCardCatalogue(WeatherData weather) {
   // Derived display strings built from the structured model.
   // When a real API is connected, these strings update automatically
   // because they are derived from WeatherData fields.
-  final rainChance = '${weather.rainfallProbability.toInt()}% chance';
+  final rainChance = weather.rainfallProbability != null
+      ? '${weather.rainfallProbability!.toInt()}% chance'
+      : (weather.rainfallAmountMm != null ? '${weather.rainfallAmountMm!.toStringAsFixed(1)} mm' : '--');
   final rainSubtitle =
       weather.rainfallAmountMm != null && weather.rainfallWindow != null
       ? '~${weather.rainfallAmountMm!.toInt()} mm expected'
@@ -137,31 +142,62 @@ List<WeatherCardData> buildWeatherCardCatalogue(WeatherData weather) {
       icon: Icons.wind_power,
       accentColor: const Color(0xFF00838F),
     ),
-    const WeatherCardData(
-      type: WeatherCardType.weatherAlert,
-      title: 'Weather Alert',
-      value: '⚠ Yellow Alert',
-      subtitle: 'Thunderstorm warning · Avoid open areas 3–8 PM',
-      icon: Icons.warning_amber_rounded,
-      accentColor: Color(0xFFF57F17),
-      isAlert: true,
-    ),
-    const WeatherCardData(
-      type: WeatherCardType.farmAdvisory,
-      title: 'Farm Advisory',
-      value: 'Hold irrigation',
-      subtitle: '8–10 mm rain tonight · Harvest before evening',
-      icon: Icons.grass,
-      accentColor: Color(0xFF388E3C),
-    ),
-    const WeatherCardData(
-      type: WeatherCardType.travelAdvisory,
-      title: 'Travel Advisory',
-      value: 'Moderate disruption',
-      subtitle: 'Fog on NH-44 · Waterlogging at Mehdipatnam',
-      icon: Icons.directions_car,
-      accentColor: Color(0xFF5E35B1),
-    ),
+    () {
+      final alert = weather.primaryAlert;
+      final bool isAlertActive = alert.isActive;
+
+      final cardTitle = alert.isOfficial ? 'IMD Alert' : 'Weather Alert';
+      final cardValue = isAlertActive
+          ? '⚠ ${alert.severityLabel}'
+          : 'Normal Conditions';
+      final cardSubtitle = isAlertActive
+          ? '${alert.title} · ${alert.precautions.isNotEmpty ? alert.precautions.first : "Stay updated"}'
+          : 'No severe weather alerts active';
+
+      return WeatherCardData(
+        type: WeatherCardType.weatherAlert,
+        title: cardTitle,
+        value: cardValue,
+        subtitle: cardSubtitle,
+        icon: isAlertActive
+            ? (alert.severity == AlertSeverity.high || alert.severity == AlertSeverity.extreme
+                ? Icons.warning_rounded
+                : Icons.warning_amber_rounded)
+            : Icons.shield_outlined,
+        accentColor: alert.severityColor,
+        isAlert: isAlertActive,
+      );
+    }(),
+    () {
+      final farmAdv = AdvisoryService.getPersonaAdvisory(
+        Persona.farmer,
+        weather,
+        weather.primaryAlert,
+      );
+      return WeatherCardData(
+        type: WeatherCardType.farmAdvisory,
+        title: 'Farm Advisory',
+        value: farmAdv.headline,
+        subtitle: farmAdv.recommendation,
+        icon: farmAdv.icon,
+        accentColor: farmAdv.accentColor,
+      );
+    }(),
+    () {
+      final travelAdv = AdvisoryService.getPersonaAdvisory(
+        Persona.traveller,
+        weather,
+        weather.primaryAlert,
+      );
+      return WeatherCardData(
+        type: WeatherCardType.travelAdvisory,
+        title: 'Travel Advisory',
+        value: travelAdv.headline,
+        subtitle: travelAdv.recommendation,
+        icon: travelAdv.icon,
+        accentColor: travelAdv.accentColor,
+      );
+    }(),
     WeatherCardData(
       type: WeatherCardType.visibility,
       title: 'Visibility',
@@ -170,14 +206,39 @@ List<WeatherCardData> buildWeatherCardCatalogue(WeatherData weather) {
       icon: Icons.visibility,
       accentColor: const Color(0xFF0288D1),
     ),
-    const WeatherCardData(
-      type: WeatherCardType.marineTide,
-      title: 'Marine / Tide',
-      value: 'Moderate sea',
-      subtitle: 'High tide 12:38 · Waves 1.2 m · Fishing advisory',
-      icon: Icons.waves,
-      accentColor: Color(0xFF00695C),
-    ),
+    () {
+      final nearest = MarineAdvisoryService.resolveNearestStation(
+        city: weather.city,
+      );
+
+      final isHighWind = weather.windSpeedKmh >= 40.0;
+      final isModerateWind = weather.windSpeedKmh >= 25.0;
+      final seaDesc = isHighWind
+          ? 'Rough sea'
+          : (isModerateWind ? 'Moderate sea' : 'Normal sea');
+
+      final String cardValue;
+      final String cardSubtitle;
+
+      if (nearest.isUserInland) {
+        cardValue = 'Inland Location';
+        cardSubtitle =
+            'Nearest Coast: ${nearest.station.name} (${nearest.station.basin.shortLabel}) · ${nearest.distanceKm.toInt()} km away';
+      } else {
+        cardValue = '${nearest.station.name} (${nearest.station.basin.shortLabel})';
+        cardSubtitle =
+            '${nearest.station.coastalZone} · Winds ${weather.windSpeedInt} km/h · $seaDesc';
+      }
+
+      return WeatherCardData(
+        type: WeatherCardType.marineTide,
+        title: 'Marine / Coastal',
+        value: cardValue,
+        subtitle: cardSubtitle,
+        icon: Icons.waves,
+        accentColor: isHighWind ? const Color(0xFFDC2626) : const Color(0xFF00695C),
+      );
+    }(),
     WeatherCardData(
       type: WeatherCardType.humidity,
       title: 'Humidity',
